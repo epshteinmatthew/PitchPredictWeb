@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pitch Predict</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <h1>Live at-bats</h1>
+  <div id="meta">Loading…</div>
+  <div id="list"></div>
+  <div class="acc-mode" role="group" aria-label="Accuracy chart mode">
+    <button type="button" class="acc-mode-btn active" data-mode="rolling">Rolling</button>
+    <button type="button" class="acc-mode-btn" data-mode="total">Total</button>
+  </div>
+  <section class="acc">
+    <div class="acc-head">
+      <span class="acc-title">Top-1 accuracy</span>
+      <span id="acc-val" class="acc-val">—</span>
+    </div>
+    <p class="acc-sub">Top guess matches the pitch thrown</p>
+    <div class="acc-wrap">
+      <canvas id="acc-chart"></canvas>
+    </div>
+  </section>
+  <section class="acc">
+    <div class="acc-head">
+      <span class="acc-title">Top-3 accuracy</span>
+      <span id="acc3-val" class="acc-val">—</span>
+    </div>
+    <p class="acc-sub">Actual pitch is among the top 3 guesses</p>
+    <div class="acc-wrap">
+      <canvas id="acc3-chart"></canvas>
+    </div>
+  </section>
+  <section class="acc">
+    <div class="acc-head">
+      <span class="acc-title">High-confidence accuracy</span>
+      <span id="acc50-val" class="acc-val">—</span>
+    </div>
+    <p class="acc-sub">Top two guesses differ by 20%+ and top guess matches</p>
+    <div class="acc-wrap">
+      <canvas id="acc50-chart"></canvas>
+    </div>
+  </section>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

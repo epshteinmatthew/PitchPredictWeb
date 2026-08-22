@@ -1,0 +1,310 @@
+@font-face {
+  font-family: "Proxima Nova";
+  src: url("https://www.mlbstatic.com/mlb.com/fonts/proxima-nova-regular.woff2") format("woff2");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Proxima Nova";
+  src: url("https://www.mlbstatic.com/mlb.com/fonts/proxima-nova-semibold.woff2") format("woff2");
+  font-weight: 600;
+}
+@font-face {
+  font-family: "Proxima Nova";
+  src: url("https://www.mlbstatic.com/mlb.com/fonts/proxima-nova-extrabold.woff2") format("woff2");
+  font-weight: 800;
+}
+
+:root {
+  font-family: "Proxima Nova", system-ui, sans-serif;
+  color: #111;
+  background: #fff;
+}
+html, body { background: #fff; }
+body { max-width: 72rem; margin: 1.5rem auto; padding: 0 1rem; }
+h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
+#meta { color: #555; font-size: .9rem; margin-bottom: 1rem; }
+#list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+#list > .empty { grid-column: 1 / -1; }
+
+.card {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: .85rem 1rem;
+  background: #fff;
+  overflow: visible;
+  cursor: pointer;
+  align-self: start;
+  justify-self: start;
+  width: 100%;
+  min-height: 12.25rem;
+  height: auto;
+  box-sizing: border-box;
+  will-change: transform;
+  position: relative;
+  z-index: 0;
+}
+.card:has(.dot-wrap:hover),
+.card:has(.pitcher-name:hover) {
+  z-index: 1000;
+}
+.card.expanded {
+  height: auto;
+  cursor: default;
+  overflow: visible;
+}
+.card.expanded:not(.down-only) { grid-column: span 2; }
+
+.card-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 0fr;
+}
+.card.expanded .card-body {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto;
+  gap: 1rem;
+  align-items: start;
+}
+.card.expanded .card-detail { grid-column: 2; grid-row: 1; }
+
+/* Expand downward as an overlay so the grid row (and next row) stay put */
+.card.expanded.down-only {
+  z-index: 20;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.card.expanded.down-only .card-body {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 0fr;
+  gap: 0;
+}
+.card.expanded.down-only .card-detail {
+  grid-column: auto;
+  grid-row: auto;
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: calc(100% - 1px);
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  box-sizing: border-box;
+}
+.card.expanded.down-only .card-detail > .inner {
+  padding: 1rem 1rem .85rem;
+}
+
+.card-main {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .85rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.row { display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.game { font-weight: 800; color: #041e42; }
+.inning { color: #c8102e; font-weight: 600; }
+.matchup { font-weight: 600; margin: .2rem 0; }
+.pitcher-name {
+  position: relative;
+  cursor: inherit;
+  border-bottom: 1px dotted #888;
+}
+.pitcher-name .pitcher-tip {
+  left: 0;
+  top: calc(100% + 6px);
+  min-width: 12.5rem;
+}
+.pitcher-name:hover .pitcher-tip { display: block; }
+.mix-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.pitches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dot-wrap { position: relative; z-index: 0; }
+.dot-wrap:hover { z-index: 1001; }
+.dot {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 800;
+  font-size: .8rem;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.dot.ball { background: #2e8b3a; }
+.dot.strike { background: #d32f2f; }
+.dot.play { background: #1e6fd9; }
+.dot.out { background: #7b1fa2; }
+.tip {
+  display: none;
+  position: absolute;
+  left: 2.1rem;
+  top: 0;
+  z-index: 1002;
+  min-width: 11rem;
+  padding: 6px 8px;
+  background: #000;
+  color: #fff;
+  border: 1px solid #333;
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.dot-wrap:hover .tip { display: block; }
+.tip-h { font-weight: 600; margin-bottom: 2px; }
+.tip .guess { font-weight: 800; }
+.tip .actual { margin-top: 4px; padding-top: 4px; border-top: 1px solid #444; }
+.tip .outcome { color: #ccc; }
+.pred { margin: .5rem 0 0; padding: 0; list-style: none; }
+.pred li { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.pred .best { font-weight: 800; color: #041e42; }
+.err { color: #a30; }
+.empty { color: #555; }
+
+.card-detail { overflow: hidden; min-height: 0; min-width: 0; }
+.card-detail > .inner {
+  min-width: 0;
+  opacity: 0;
+  visibility: hidden;
+}
+.card.expanded.ready .card-detail > .inner {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity .22s ease;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+.stat-box .lbl {
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #888;
+  margin-bottom: 2px;
+}
+.stat-box .name { font-weight: 600; font-size: .9rem; margin-bottom: 4px; }
+.stat-box .nums { font-size: .85rem; color: #333; font-variant-numeric: tabular-nums; }
+
+.section-title {
+  font-size: .7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #888;
+  margin: 0 0 .35rem;
+}
+
+.pitch-log { list-style: none; margin: 0; padding: 0; }
+.pitch-log li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .65rem;
+  padding: .35rem 0;
+  font-size: .85rem;
+}
+.pitch-log .dot { width: 1.5rem; height: 1.5rem; font-size: .75rem; }
+.pitch-log .preds { color: #555; line-height: 1.45; }
+.pitch-log .preds strong { color: #041e42; font-weight: 800; }
+.pitch-log .actual { margin-top: 3px; font-weight: 600; }
+.pitch-log .outcome { margin-top: 2px; color: #555; font-size: .8rem; }
+.pitch-log .match { color: #2e8b3a; }
+.pitch-log .miss { color: #888; }
+.card-main .ab-result { margin: .5rem 0 0; }
+.card-detail .ab-result { margin: 0 0 .75rem; }
+.ab-result {
+  font-weight: 600;
+  color: #041e42;
+  font-size: .9rem;
+}
+
+@media (max-width: 40rem) {
+  .card.expanded:not(.down-only) { grid-column: span 1; }
+  .card.expanded {
+    z-index: 20;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .card.expanded .card-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 0fr;
+    gap: 0;
+  }
+  .card.expanded .card-detail {
+    grid-column: auto;
+    grid-row: auto;
+    position: absolute;
+    left: -1px;
+    right: -1px;
+    top: calc(100% - 1px);
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+    box-sizing: border-box;
+  }
+  .card.expanded .card-detail > .inner {
+    padding: 1rem 1rem .85rem;
+  }
+}
+
+.acc-mode {
+  display: inline-flex;
+  gap: 0;
+  margin: 1.5rem 0 .75rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.acc-mode-btn {
+  appearance: none;
+  border: 0;
+  background: #fff;
+  color: #555;
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+  padding: .4rem .85rem;
+  cursor: pointer;
+}
+.acc-mode-btn + .acc-mode-btn { border-left: 1px solid #ddd; }
+.acc-mode-btn.active {
+  background: #041e42;
+  color: #fff;
+}
+.acc { margin: 0 0 1.5rem; max-width: 100%; }
+.acc:last-of-type { margin-bottom: 1.5rem; }
+.acc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+.acc-title { font-weight: 800; color: #555; }
+.acc-val { font-weight: 800; font-variant-numeric: tabular-nums; }
+.acc-sub { margin: .2rem 0 .6rem; color: #888; font-size: .8rem; }
+.acc-wrap {
+  position: relative;
+  height: 140px;
+}
+#acc-chart, #acc3-chart, #acc50-chart { display: block; }
