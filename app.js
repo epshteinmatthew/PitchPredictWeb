@@ -1,7 +1,9 @@
 const MLB = "https://statsapi.mlb.com/api";
-const API = new URLSearchParams(location.search).get("api") || "https://sas-cute-southeast-crossword.trycloudflare.com";
+const API = new URLSearchParams(location.search).get("api") || "https://arthur-masters-experiences-grammar.trycloudflare.com";
 const TYPE = {SI:0,CH:1,FF:2,ST:3,FC:4,FS:5,SL:6,CU:7,SV:8,KC:9,FO:10,PO:11,FA:12,UN:13,CS:14,EP:15,KN:16,SC:17};
+const TYPE_ALIAS = {FT:"SI", SF:"FS"};
 const TYPE_CODE = Object.fromEntries(Object.entries(TYPE).map(([k, v]) => [v, k]));
+const typeIndex = code => TYPE[TYPE_ALIAS[code] || code] ?? TYPE.UN;
 const CALL = {called_strike:0,ball:1,swinging_strike:2,blocked_ball:3,foul:4,foul_bunt:5,foul_tip:6,automatic_ball:7,swinging_strike_blocked:8,automatic_strike:9,pitchout:10,missed_bunt:11,bunt_foul_tip:12,hit_into_play:13,hit_by_pitch:14,swinging_pitchout:15};
 const CODE = {B:"ball","*":"blocked_ball",C:"called_strike",S:"swinging_strike",W:"swinging_strike_blocked",T:"foul_tip",F:"foul",L:"foul_bunt",M:"missed_bunt",O:"bunt_foul_tip",P:"pitchout",Q:"swinging_pitchout",X:"hit_into_play",D:"hit_into_play",E:"hit_into_play",H:"hit_by_pitch",V:"automatic_ball",A:"automatic_strike"};
 const KIND = {
@@ -28,7 +30,27 @@ const OUTCOME = {
 const codeFrom = t => TYPE_CODE[t] ?? TYPE_CODE[+t] ?? t;
 const name = c => NAME[codeFrom(c)] || codeFrom(c) || c;
 const outcomeName = c => OUTCOME[c] || c;
-const normalizeRanked = ranked => (ranked || []).map(([t, p]) => [codeFrom(t), p]);
+const normalizeRanked = ranked => (ranked || [])
+  .map(([t, p]) => [codeFrom(t), p])
+  .filter(([t]) => t !== "UN");
+
+function arsenalCodes(mix) {
+  const codes = new Set();
+  for (const { code } of mix || []) {
+    const mapped = TYPE_ALIAS[code] || code;
+    if (mapped in TYPE) codes.add(mapped);
+  }
+  return codes;
+}
+
+function maskRanked(ranked, allowed) {
+  if (!allowed?.size || !ranked?.length) return ranked;
+  const filtered = ranked.filter(([t]) => allowed.has(t));
+  if (!filtered.length) return ranked;
+  const total = filtered.reduce((s, [, p]) => s + p, 0);
+  if (total <= 0) return filtered;
+  return filtered.map(([t, p]) => [t, p / total]);
+}
 
 let items = [];
 let expandedPks = new Set();
@@ -117,7 +139,7 @@ function atBat(feed, gamePk) {
     const code = d.call?.code || d.code;
     const call = CODE[code] || "ball";
     calls.push(CALL[call] ?? CALL.ball);
-    types.push(TYPE[d.type?.code] ?? TYPE.UN);
+    types.push(typeIndex(d.type?.code));
     let kind = KIND[call] || "ball";
     if (call === "hit_into_play" && (d.isOut || code === "X")) kind = "out";
     return {
@@ -167,7 +189,7 @@ function atBat(feed, gamePk) {
 }
 
 async function predict(body, yr) {
-  const key = `p:${body.pitcher_id}:${body.batter_id}:${body.at_bat_number}:${body.pitch_number}:${body.pitch_types_so_far.join("-")}:${body.pitch_calls_so_far.join("-")}`;
+  const key = `p2:${body.pitcher_id}:${body.batter_id}:${body.at_bat_number}:${body.pitch_number}:${body.pitch_types_so_far.join("-")}:${body.pitch_calls_so_far.join("-")}`;
   const hit = sessionStorage.getItem(key);
   if (hit) return normalizeRanked(JSON.parse(hit));
   const [avg, obp, slg] = await slash(body.batter_id, yr);
@@ -233,6 +255,8 @@ function carryPreds(old, ab) {
 }
 
 async function attachPreds(ab, yr) {
+  const mix = await pitchMix(ab.body.pitcher_id, yr);
+  const allowed = arsenalCodes(mix);
   const jobs = ab.view.pitches.map(async (p, i) => {
     if (p.ranked) return;
     const body = {
@@ -248,6 +272,10 @@ async function attachPreds(ab, yr) {
     jobs.push(predict(ab.body, yr).then(r => { ab.ranked = r; }).catch(e => { ab.err = e.message; }));
   }
   await Promise.all(jobs);
+  for (const p of ab.view.pitches) {
+    if (p.ranked) p.ranked = maskRanked(p.ranked, allowed);
+  }
+  if (ab.ranked) ab.ranked = maskRanked(ab.ranked, allowed);
   ab._predKey = predKey(ab);
 }
 
