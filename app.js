@@ -1,6 +1,7 @@
 const MLB = "https://statsapi.mlb.com/api";
-const API = new URLSearchParams(location.search).get("api") || "http://170.9.23.151:8000";
+const API = new URLSearchParams(location.search).get("api") || "https://sas-cute-southeast-crossword.trycloudflare.com";
 const TYPE = {SI:0,CH:1,FF:2,ST:3,FC:4,FS:5,SL:6,CU:7,SV:8,KC:9,FO:10,PO:11,FA:12,UN:13,CS:14,EP:15,KN:16,SC:17};
+const TYPE_CODE = Object.fromEntries(Object.entries(TYPE).map(([k, v]) => [v, k]));
 const CALL = {called_strike:0,ball:1,swinging_strike:2,blocked_ball:3,foul:4,foul_bunt:5,foul_tip:6,automatic_ball:7,swinging_strike_blocked:8,automatic_strike:9,pitchout:10,missed_bunt:11,bunt_foul_tip:12,hit_into_play:13,hit_by_pitch:14,swinging_pitchout:15};
 const CODE = {B:"ball","*":"blocked_ball",C:"called_strike",S:"swinging_strike",W:"swinging_strike_blocked",T:"foul_tip",F:"foul",L:"foul_bunt",M:"missed_bunt",O:"bunt_foul_tip",P:"pitchout",Q:"swinging_pitchout",X:"hit_into_play",D:"hit_into_play",E:"hit_into_play",H:"hit_by_pitch",V:"automatic_ball",A:"automatic_strike"};
 const KIND = {
@@ -24,8 +25,10 @@ const OUTCOME = {
   bunt_foul_tip: "Bunt foul tip", swinging_pitchout: "Swinging pitchout",
   hit_into_play: "In play", hit_by_pitch: "Hit by pitch",
 };
-const name = c => NAME[c] || c;
+const codeFrom = t => TYPE_CODE[t] ?? TYPE_CODE[+t] ?? t;
+const name = c => NAME[codeFrom(c)] || codeFrom(c) || c;
 const outcomeName = c => OUTCOME[c] || c;
+const normalizeRanked = ranked => (ranked || []).map(([t, p]) => [codeFrom(t), p]);
 
 let items = [];
 let expandedPks = new Set();
@@ -166,7 +169,7 @@ function atBat(feed, gamePk) {
 async function predict(body, yr) {
   const key = `p:${body.pitcher_id}:${body.batter_id}:${body.at_bat_number}:${body.pitch_number}:${body.pitch_types_so_far.join("-")}:${body.pitch_calls_so_far.join("-")}`;
   const hit = sessionStorage.getItem(key);
-  if (hit) return JSON.parse(hit);
+  if (hit) return normalizeRanked(JSON.parse(hit));
   const [avg, obp, slg] = await slash(body.batter_id, yr);
   const r = await fetch(`${API}/predict/`, {
     method: "POST",
@@ -174,7 +177,7 @@ async function predict(body, yr) {
     body: JSON.stringify({ ...body, batter_avg: avg, batter_obp: obp, batter_slg: slg }),
   });
   if (!r.ok) throw new Error("predict " + r.status);
-  const ranked = await r.json();
+  const ranked = normalizeRanked(await r.json());
   sessionStorage.setItem(key, JSON.stringify(ranked));
   return ranked;
 }
@@ -220,11 +223,11 @@ function carryPreds(old, ab) {
   if (!sameAb) return;
   for (const p of ab.view.pitches) {
     const op = old.view.pitches.find(x => x.n === p.n);
-    if (op?.ranked) p.ranked = op.ranked;
+    if (op?.ranked) p.ranked = normalizeRanked(op.ranked);
     else if (op?.err) p.err = op.err;
   }
   if (!ab.view.done && old.ranked && old._predKey === predKey(ab)) {
-    ab.ranked = old.ranked;
+    ab.ranked = normalizeRanked(old.ranked);
     if (old.err) ab.err = old.err;
   }
 }
@@ -293,7 +296,7 @@ function pitchLogRow(p) {
       return i === 0 && highConf(p.ranked) ? `<strong>${text}</strong>` : text;
     })
     .join(", ") || esc(p.err || "—");
-  const hit = p.ranked?.[0]?.[0] === p.type;
+  const hit = codeFrom(p.ranked?.[0]?.[0]) === p.type;
   return `<li>
     <span class="dot-wrap"><span class="dot ${p.kind}">${p.n}</span>${tip(p)}</span>
     <div>
@@ -1014,9 +1017,9 @@ function ingestAccuracy() {
       const id = `${item.gamePk}:${item.body.at_bat_number}:${p.n}:${p.type}`;
       if (seenPitches.has(id)) continue;
       seenPitches.add(id);
-      const correct = p.ranked[0][0] === p.type;
+      const correct = codeFrom(p.ranked[0][0]) === p.type;
       roll(top1, correct);
-      roll(top3, p.ranked.slice(0, 3).some(([t]) => t === p.type));
+      roll(top3, p.ranked.slice(0, 3).some(([t]) => codeFrom(t) === p.type));
       if (highConf(p.ranked)) {
         roll(top50, correct);
       }
