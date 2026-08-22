@@ -1,5 +1,5 @@
 const MLB = "https://statsapi.mlb.com/api";
-const API = new URLSearchParams(location.search).get("api") || "https://arthur-masters-experiences-grammar.trycloudflare.com";
+const API = new URLSearchParams(location.search).get("api") || "https://sims-statistics-villa-infrared.trycloudflare.com/";
 const TYPE = {SI:0,CH:1,FF:2,ST:3,FC:4,FS:5,SL:6,CU:7,SV:8,KC:9,FO:10,PO:11,FA:12,UN:13,CS:14,EP:15,KN:16,SC:17};
 const TYPE_ALIAS = {FT:"SI", SF:"FS"};
 const TYPE_CODE = Object.fromEntries(Object.entries(TYPE).map(([k, v]) => [v, k]));
@@ -423,6 +423,8 @@ function applyPushes() {
     detail.style.height = "";
     const er = el.getBoundingClientRect();
     const panelBottom = er.bottom + detail.scrollHeight - 1;
+    const panelLeft = er.left;
+    const panelRight = er.right;
     detail.style.height = saved;
 
     const col = cards
@@ -434,16 +436,15 @@ function applyPushes() {
           c,
           layoutTop: r.top - push,
           height: r.height,
-          width: r.width,
           left: r.left,
           right: r.right,
         };
       })
       .filter(x => {
-        const overlap = Math.min(x.right, er.right) - Math.max(x.left, er.left);
-        return overlap > x.width * 0.5;
+        const overlapX = Math.min(x.right, panelRight) - Math.max(x.left, panelLeft);
+        const overlapY = panelBottom - x.layoutTop;
+        return overlapX > 0 && overlapY > 0;
       })
-      .filter(x => x.layoutTop >= er.bottom - 2)
       .sort((a, b) => a.layoutTop - b.layoutTop);
 
     let clearBelow = panelBottom + LIST_GAP;
@@ -489,17 +490,8 @@ function applyPushes() {
 function applyLayout(el, open) {
   if (!el) return;
   if (open) {
-    const before = snapshotCards();
-    el.classList.add("expanded");
+    el.classList.add("expanded", "down-only");
     el.classList.remove("ready");
-    const after = snapshotCards();
-    const moved = [...before.keys()].some(c => {
-      const a = before.get(c);
-      const b = after.get(c);
-      if (!a || !b) return true;
-      return Math.abs(a.left - b.left) > 2 || Math.abs(a.top - b.top) > 2;
-    });
-    if (moved) el.classList.add("down-only");
   } else {
     el.classList.remove("expanded", "down-only", "ready");
   }
@@ -595,6 +587,7 @@ function fillStats(i) {
   if (slashEl) slashEl.textContent = `${fmtRate(st.avg)} / ${fmtRate(st.obp)} / ${fmtRate(st.slg)}`;
   el.dataset.contentKey = contentKey(item);
   el.dataset.detailKey = detailKey(item);
+  if (el.classList.contains("expanded")) applyPushes();
 }
 
 function toggleExpanded(i) {
@@ -632,7 +625,10 @@ function toggleExpanded(i) {
   expandedPks.add(pk);
   applyLayout(el, true);
   applyPushes();
-  playFlip(first, () => el.classList.add("ready"), el);
+  playFlip(first, () => {
+    el.classList.add("ready");
+    applyPushes();
+  }, el);
   loadStats(items[i]).then(() => fillStats(i));
 }
 

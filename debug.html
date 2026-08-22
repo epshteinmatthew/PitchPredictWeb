@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API debug — Pitch Predict</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .debug-head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; margin-bottom: 1rem; }
+    .debug-head label { display: flex; flex-direction: column; gap: .25rem; font-size: .85rem; }
+    .debug-head input { min-width: 7rem; padding: .35rem .5rem; }
+    .debug-head input#api { min-width: 18rem; }
+    .debug-head button { padding: .45rem 1rem; cursor: pointer; }
+    .debug-meta { color: #555; font-size: .9rem; margin-bottom: 1rem; }
+    .debug-summary { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .75rem; margin-bottom: 1.5rem; }
+    .debug-stat { border: 1px solid #ddd; border-radius: 8px; padding: .75rem; }
+    .debug-stat .lbl { font-size: .75rem; color: #666; text-transform: uppercase; letter-spacing: .03em; }
+    .debug-stat .val { font-size: 1.4rem; font-weight: 800; margin-top: .15rem; }
+    .debug-stat .val.small { font-size: 1rem; }
+    .debug-section { margin-bottom: 2rem; }
+    .debug-section h2 { font-size: 1rem; margin: 0 0 .5rem; }
+    .debug-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
+    .debug-wrap { border: 1px solid #ddd; border-radius: 8px; padding: .75rem; }
+    .debug-table-wrap { overflow: auto; max-height: 32rem; }
+    table.debug-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    table.debug-table th, table.debug-table td { border-bottom: 1px solid #eee; padding: .4rem .5rem; text-align: left; vertical-align: top; }
+    table.debug-table th { position: sticky; top: 0; background: #fff; z-index: 1; }
+    table.debug-table tr.hit td { background: #f0faf0; }
+    table.debug-table tr.miss td { background: #fff5f5; }
+    table.debug-table tr.err td { background: #fff8e6; }
+    .err { color: #b00020; }
+    .ok { color: #0a7a2f; }
+    .nav { margin-bottom: 1rem; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <p class="nav"><a href="index.html">← Live at-bats</a></p>
+  <h1>API debug — real data grading</h1>
+  <p class="debug-meta">Loads recent MLB games for a pitcher, replays each real pitch sequence through <code>/predict/</code>, and grades against the pitch actually thrown. Use <code>?api=…</code> to override the endpoint.</p>
+
+  <div class="debug-head">
+    <label>API URL<input id="api" type="url"></label>
+    <label>Pitcher ID<input id="pitcher" type="number" value="477132"></label>
+    <label>Season<input id="season" type="number" value="2025"></label>
+    <label>Games<input id="games" type="number" value="5" min="1" max="30"></label>
+    <label>Max pitches<input id="max" type="number" value="200" min="10" max="1000"></label>
+    <button id="run" type="button">Grade on real data</button>
+  </div>
+
+  <div id="status" class="debug-meta">Ready.</div>
+
+  <div class="debug-summary">
+    <div class="debug-stat"><div class="lbl">Pitches graded</div><div class="val" id="stat-total">—</div></div>
+    <div class="debug-stat"><div class="lbl">Top-1 accuracy</div><div class="val" id="stat-top1">—</div></div>
+    <div class="debug-stat"><div class="lbl">Top-3 accuracy</div><div class="val" id="stat-top3">—</div></div>
+    <div class="debug-stat"><div class="lbl">High-conf accuracy</div><div class="val" id="stat-hi">—</div></div>
+    <div class="debug-stat"><div class="lbl">API errors</div><div class="val" id="stat-errors">—</div></div>
+    <div class="debug-stat"><div class="lbl">Unique responses</div><div class="val" id="stat-unique">—</div></div>
+  </div>
+
+  <section class="debug-section">
+    <h2>Predicted vs actual distribution</h2>
+    <div class="debug-charts">
+      <div class="debug-wrap"><canvas id="pred-chart" height="140"></canvas></div>
+      <div class="debug-wrap"><canvas id="actual-chart" height="140"></canvas></div>
+    </div>
+  </section>
+
+  <section class="debug-section">
+    <h2>Pitch results</h2>
+    <div class="debug-table-wrap debug-wrap">
+      <table class="debug-table">
+        <thead>
+          <tr>
+            <th>Game</th>
+            <th>Batter</th>
+            <th>#</th>
+            <th>Prior types</th>
+            <th>Predicted</th>
+            <th>Actual</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="debug.js"></script>
+</body>
+</html>
