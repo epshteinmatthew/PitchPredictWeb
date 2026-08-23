@@ -112,6 +112,130 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
 .game { font-weight: 800; color: #041e42; }
 .inning { color: #c8102e; font-weight: 600; }
 .matchup { font-weight: 600; margin: .2rem 0; }
+.situation {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  width: 100%;
+  column-gap: .4rem;
+  row-gap: .15rem;
+  margin: .25rem 0 .2rem;
+}
+.situation .diamond { grid-column: 1; grid-row: 1 / -1; }
+.situation .sit-count {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+.situation .outs {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+}
+.diamond {
+  position: relative;
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #ccc;
+}
+.diamond-outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.base {
+  position: absolute;
+  width: .375rem;
+  height: .375rem;
+  background: #e8e8e8;
+  border: 1px solid #ccc;
+  box-sizing: border-box;
+}
+.base.b2 {
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+}
+.base.b3 {
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%) rotate(45deg);
+}
+.base.b1 {
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%) rotate(45deg);
+}
+.base.on {
+  background: #041e42;
+  border-color: #041e42;
+}
+.sit-count {
+  font-weight: 700;
+  font-size: .85rem;
+  font-variant-numeric: tabular-nums;
+  color: #111;
+  line-height: 1;
+}
+.outs {
+  display: flex;
+  gap: .22rem;
+  align-items: center;
+  justify-content: center;
+}
+.out-dot {
+  width: .38rem;
+  height: .38rem;
+  border-radius: 50%;
+  background: #e0e0e0;
+}
+.out-dot.on { background: #c8102e; }
+.headshot {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center 18%;
+  background: #eee;
+  flex-shrink: 0;
+  border: 1px solid #ddd;
+}
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto;
+  column-gap: .5rem;
+  row-gap: 2px;
+  margin-bottom: .75rem;
+  align-items: start;
+}
+.stat-box {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 2;
+  grid-template-columns: 2.5rem 1fr;
+  column-gap: .55rem;
+  align-items: start;
+}
+.stat-box .lbl {
+  grid-column: 1 / -1;
+}
+.stat-player {
+  display: contents;
+}
+.stat-player .headshot {
+  grid-column: 1;
+  grid-row: 2;
+}
+.stat-player > div {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  align-self: start;
+}
 .pitcher-name {
   position: relative;
   cursor: inherit;
@@ -189,12 +313,6 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
   transition: opacity .22s ease;
 }
 
-.stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: .5rem;
-  margin-bottom: .75rem;
-}
 .stat-box .lbl {
   font-size: .65rem;
   text-transform: uppercase;

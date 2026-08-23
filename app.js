@@ -177,7 +177,10 @@ function atBat(feed, gamePk) {
       game: `${feed.gameData.teams.away.abbreviation} ${away} @ ${feed.gameData.teams.home.abbreviation} ${home}`,
       inning: `${half ? "Bot" : "Top"} ${about.inning || ls.currentInning}`,
       count: `${play.count?.balls ?? 0}-${play.count?.strikes ?? 0}`,
-      bases: ["1B", "2B", "3B"].filter((_, i) => [off.first, off.second, off.third][i]).join(" ") || "empty",
+      outs: play.count?.outs ?? ls.outs ?? 0,
+      on_1b: !!off.first,
+      on_2b: !!off.second,
+      on_3b: !!off.third,
       pitcher: { id: mu.pitcher.id, name: mu.pitcher.fullName },
       batter: { id: mu.batter.id, name: mu.batter.fullName },
       matchup: `${mu.pitcher.fullName} vs ${mu.batter.fullName}`,
@@ -298,6 +301,33 @@ function pitcherName(p) {
   return `<span class="pitcher-name" data-pid="${p.id}">${esc(p.name)}<span class="tip pitcher-tip">Loading…</span></span>`;
 }
 
+function headshot(id, alt) {
+  const src = `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/${id}/headshot/67/current`;
+  return `<img class="headshot" src="${src}" alt="${esc(alt || "")}" width="40" height="40" loading="lazy">`;
+}
+
+function situationHtml(v) {
+  const [balls, strikes] = String(v.count || "0-0").split("-");
+  const outs = Math.max(0, Math.min(3, +v.outs || 0));
+  const pad = (on, cls, label) =>
+    `<span class="base ${cls}${on ? " on" : ""}" title="${label}"></span>`;
+  const outDots = [0, 1, 2].map(i =>
+    `<span class="out-dot${i < outs ? " on" : ""}"></span>`
+  ).join("");
+  return `<div class="situation" aria-label="${esc(balls)} and ${esc(strikes)}, ${outs} out${outs === 1 ? "" : "s"}">
+    <div class="diamond" aria-hidden="true">
+      <svg class="diamond-outline" viewBox="0 0 100 100">
+        <path d="M50 88 L12 50 L50 12 L88 50 Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ${pad(v.on_2b, "b2", "2B")}
+      ${pad(v.on_3b, "b3", "3B")}
+      ${pad(v.on_1b, "b1", "1B")}
+    </div>
+    <div class="sit-count">${esc(balls)}-${esc(strikes)}</div>
+    <div class="outs">${outDots}</div>
+  </div>`;
+}
+
 async function fillPitcherTip(el) {
   const tip = el.querySelector(".pitcher-tip");
   if (!tip) return;
@@ -346,8 +376,14 @@ function cardDetail(item) {
     : `<p class="empty">No pitches yet</p>`;
   return `<div class="card-detail"><div class="inner">
     <div class="stats">
-      <div class="stat-box"><div class="lbl">Pitching</div><div class="name">${pitcherName(v.pitcher)}</div><div class="nums era">${st ? "ERA " + fmtEra(st.era) : "ERA —"}</div></div>
-      <div class="stat-box"><div class="lbl">At bat</div><div class="name">${esc(v.batter.name)}</div><div class="nums slash">${st ? `${fmtRate(st.avg)} / ${fmtRate(st.obp)} / ${fmtRate(st.slg)}` : "— / — / —"}</div></div>
+      <div class="stat-box">
+        <div class="lbl">Pitching</div>
+        <div class="stat-player">${headshot(v.pitcher.id, v.pitcher.name)}<div><div class="name">${pitcherName(v.pitcher)}</div><div class="nums era">${st ? "ERA " + fmtEra(st.era) : "ERA —"}</div></div></div>
+      </div>
+      <div class="stat-box">
+        <div class="lbl">At bat</div>
+        <div class="stat-player">${headshot(v.batter.id, v.batter.name)}<div><div class="name">${esc(v.batter.name)}</div><div class="nums slash">${st ? `${fmtRate(st.avg)} / ${fmtRate(st.obp)} / ${fmtRate(st.slg)}` : "— / — / —"}</div></div></div>
+      </div>
     </div>
     ${abResult}
     ${log}
@@ -375,7 +411,7 @@ function card(item, i) {
         <div>
           <div class="row"><span class="game">${esc(v.game)}</span><span class="inning">${esc(v.inning)}</span></div>
           <div class="matchup">${pitcherName(v.pitcher)} vs ${esc(v.batter.name)}</div>
-          <div>${esc(v.count)} · ${esc(v.bases)}</div>
+          ${situationHtml(v)}
           ${pred}
         </div>
       </div>

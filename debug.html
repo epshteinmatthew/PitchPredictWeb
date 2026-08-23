@@ -38,6 +38,297 @@
   <h1>API debug — real data grading</h1>
   <p class="debug-meta">Loads recent MLB games for a pitcher, replays each real pitch sequence through <code>/predict/</code>, and grades against the pitch actually thrown. Use <code>?api=…</code> to override the endpoint.</p>
 
+  <section class="debug-section">
+    <h2>Card UI preview</h2>
+    <p class="debug-meta">Static sample cards using live styles. Click to expand/collapse and check column push behavior.</p>
+    <div id="list">
+      <article class="card" data-index="0" data-pk="9001" tabindex="0">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="pitches">
+              <span class="dot-wrap"><span class="dot ball">1</span></span>
+              <span class="dot-wrap"><span class="dot strike">2</span></span>
+              <span class="dot-wrap"><span class="dot strike">3</span></span>
+            </div>
+            <div>
+              <div class="row"><span class="game">NYY 2 @ BOS 1</span><span class="inning">Top 5</span></div>
+              <div class="matchup">Gerrit Cole vs Rafael Devers</div>
+              <div class="situation" aria-label="1 and 2, 1 out">
+                <div class="diamond" aria-hidden="true">
+                  <svg class="diamond-outline" viewBox="0 0 100 100">
+                    <path d="M50 88 L12 50 L50 12 L88 50 Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  </svg>
+                  <span class="base b2" title="2B"></span>
+                  <span class="base b3" title="3B"></span>
+                  <span class="base b1 on" title="1B"></span>
+                </div>
+                <div class="sit-count">1-2</div>
+                <div class="outs"><span class="out-dot on"></span><span class="out-dot"></span><span class="out-dot"></span></div>
+              </div>
+              <ul class="pred">
+                <li class="best"><span>Four-Seam Fastball</span><span>48.2%</span></li>
+                <li><span>Slider</span><span>22.1%</span></li>
+                <li><span>Curveball</span><span>14.0%</span></li>
+                <li><span>Changeup</span><span>9.4%</span></li>
+                <li><span>Cutter</span><span>6.3%</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card-detail"><div class="inner">
+            <div class="stats">
+              <div class="stat-box">
+                <div class="lbl">Pitching</div>
+                <div class="stat-player">
+                  <img class="headshot" src="https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/543037/headshot/67/current" alt="Gerrit Cole" width="40" height="40">
+                  <div><div class="name">Gerrit Cole</div><div class="nums era">ERA 3.41</div></div>
+                </div>
+              </div>
+              <div class="stat-box">
+                <div class="lbl">At bat</div>
+                <div class="stat-player">
+                  <img class="headshot" src="https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/646240/headshot/67/current" alt="Rafael Devers" width="40" height="40">
+                  <div><div class="name">Rafael Devers</div><div class="nums slash">.273 / .341 / .508</div></div>
+                </div>
+              </div>
+            </div>
+            <h3 class="section-title">Past pitches</h3>
+            <ul class="pitch-log">
+              <li>
+                <span class="dot-wrap"><span class="dot ball">1</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Four-Seam Fastball 51.0%</strong>, Slider 20.0%, Curveball 12.0%</div>
+                  <div class="actual miss">Actual: Slider</div>
+                  <div class="outcome">Ball</div>
+                </div>
+              </li>
+              <li>
+                <span class="dot-wrap"><span class="dot strike">2</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Four-Seam Fastball 44.0%</strong>, Slider 24.0%, Changeup 15.0%</div>
+                  <div class="actual match">Actual: Four-Seam Fastball</div>
+                  <div class="outcome">Called strike</div>
+                </div>
+              </li>
+              <li>
+                <span class="dot-wrap"><span class="dot strike">3</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Slider 38.0%</strong>, Four-Seam Fastball 31.0%, Curveball 18.0%</div>
+                  <div class="actual match">Actual: Slider</div>
+                  <div class="outcome">Foul</div>
+                </div>
+              </li>
+            </ul>
+          </div></div>
+        </div>
+      </article>
+
+      <article class="card" data-index="1" data-pk="9002" tabindex="0">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="pitches">
+              <span class="dot-wrap"><span class="dot strike">1</span></span>
+            </div>
+            <div>
+              <div class="row"><span class="game">LAD 0 @ SD 0</span><span class="inning">Bot 1</span></div>
+              <div class="matchup">Yoshinobu Yamamoto vs Manny Machado</div>
+              <div class="situation" aria-label="0 and 1, 0 outs">
+                <div class="diamond" aria-hidden="true">
+                  <svg class="diamond-outline" viewBox="0 0 100 100">
+                    <path d="M50 88 L12 50 L50 12 L88 50 Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  </svg>
+                  <span class="base b2" title="2B"></span>
+                  <span class="base b3" title="3B"></span>
+                  <span class="base b1" title="1B"></span>
+                </div>
+                <div class="sit-count">0-1</div>
+                <div class="outs"><span class="out-dot"></span><span class="out-dot"></span><span class="out-dot"></span></div>
+              </div>
+              <ul class="pred">
+                <li class="best"><span>Splitter</span><span>41.5%</span></li>
+                <li><span>Four-Seam Fastball</span><span>28.0%</span></li>
+                <li><span>Curveball</span><span>16.2%</span></li>
+                <li><span>Cutter</span><span>9.1%</span></li>
+                <li><span>Sinker</span><span>5.2%</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card-detail"><div class="inner">
+            <div class="stats">
+              <div class="stat-box">
+                <div class="lbl">Pitching</div>
+                <div class="stat-player">
+                  <img class="headshot" src="https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/808967/headshot/67/current" alt="Yoshinobu Yamamoto" width="40" height="40">
+                  <div><div class="name">Yoshinobu Yamamoto</div><div class="nums era">ERA 2.86</div></div>
+                </div>
+              </div>
+              <div class="stat-box">
+                <div class="lbl">At bat</div>
+                <div class="stat-player">
+                  <img class="headshot" src="https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/592518/headshot/67/current" alt="Manny Machado" width="40" height="40">
+                  <div><div class="name">Manny Machado</div><div class="nums slash">.268 / .325 / .456</div></div>
+                </div>
+              </div>
+            </div>
+            <h3 class="section-title">Past pitches</h3>
+            <ul class="pitch-log">
+              <li>
+                <span class="dot-wrap"><span class="dot strike">1</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Four-Seam Fastball 46.0%</strong>, Splitter 27.0%, Curveball 14.0%</div>
+                  <div class="actual match">Actual: Four-Seam Fastball</div>
+                  <div class="outcome">Called strike</div>
+                </div>
+              </li>
+            </ul>
+          </div></div>
+        </div>
+      </article>
+
+      <article class="card" data-index="2" data-pk="9003" tabindex="0">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="pitches">
+              <span class="dot-wrap"><span class="dot ball">1</span></span>
+              <span class="dot-wrap"><span class="dot ball">2</span></span>
+              <span class="dot-wrap"><span class="dot strike">3</span></span>
+              <span class="dot-wrap"><span class="dot strike">4</span></span>
+              <span class="dot-wrap"><span class="dot play">5</span></span>
+            </div>
+            <div>
+              <div class="row"><span class="game">HOU 4 @ SEA 3</span><span class="inning">Bot 8</span></div>
+              <div class="matchup">Josh Hader vs Julio Rodríguez</div>
+              <div class="situation" aria-label="2 and 2, 2 outs">
+                <div class="diamond" aria-hidden="true">
+                  <svg class="diamond-outline" viewBox="0 0 100 100">
+                    <path d="M50 88 L12 50 L50 12 L88 50 Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  </svg>
+                  <span class="base b2 on" title="2B"></span>
+                  <span class="base b3 on" title="3B"></span>
+                  <span class="base b1" title="1B"></span>
+                </div>
+                <div class="sit-count">2-2</div>
+                <div class="outs"><span class="out-dot on"></span><span class="out-dot on"></span><span class="out-dot"></span></div>
+              </div>
+              <p class="empty">Waiting for next batter</p>
+            </div>
+          </div>
+          <div class="card-detail"><div class="inner">
+            <div class="stats">
+              <div class="stat-box">
+                <div class="lbl">Pitching</div>
+                <div class="stat-player">
+                  <img class="headshot" src="https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/623352/headshot/67/current" alt="Josh Hader" width="40" height="40">
+                  <div><div class="name">Josh Hader</div><div class="nums era">ERA 2.12</div></div>
+                </div>
+              </div>
+              <div class="stat-box">
+                <div class="lbl">At bat</div>
+                <div class="stat-player">
+                  <img class="headshot" src="https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/677594/headshot/67/current" alt="Julio Rodríguez" width="40" height="40">
+                  <div><div class="name">Julio Rodríguez</div><div class="nums slash">.281 / .339 / .472</div></div>
+                </div>
+              </div>
+            </div>
+            <p class="ab-result">Julio Rodríguez singles to left. Runner scores.</p>
+            <h3 class="section-title">Past pitches</h3>
+            <ul class="pitch-log">
+              <li>
+                <span class="dot-wrap"><span class="dot ball">1</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Slider 55.0%</strong>, Four-Seam Fastball 30.0%, Sinker 10.0%</div>
+                  <div class="actual miss">Actual: Four-Seam Fastball</div>
+                  <div class="outcome">Ball</div>
+                </div>
+              </li>
+              <li>
+                <span class="dot-wrap"><span class="dot ball">2</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Slider 49.0%</strong>, Four-Seam Fastball 34.0%, Sinker 12.0%</div>
+                  <div class="actual miss">Actual: Sinker</div>
+                  <div class="outcome">Ball</div>
+                </div>
+              </li>
+              <li>
+                <span class="dot-wrap"><span class="dot strike">3</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Slider 52.0%</strong>, Four-Seam Fastball 33.0%</div>
+                  <div class="actual match">Actual: Slider</div>
+                  <div class="outcome">Swinging strike</div>
+                </div>
+              </li>
+              <li>
+                <span class="dot-wrap"><span class="dot strike">4</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Four-Seam Fastball 47.0%</strong>, Slider 40.0%</div>
+                  <div class="actual match">Actual: Four-Seam Fastball</div>
+                  <div class="outcome">Foul</div>
+                </div>
+              </li>
+              <li>
+                <span class="dot-wrap"><span class="dot play">5</span></span>
+                <div>
+                  <div class="preds">Predicted: <strong>Slider 58.0%</strong>, Four-Seam Fastball 29.0%</div>
+                  <div class="actual miss">Actual: Four-Seam Fastball</div>
+                  <div class="outcome">In play</div>
+                </div>
+              </li>
+            </ul>
+          </div></div>
+        </div>
+      </article>
+
+      <article class="card" data-index="3" data-pk="9004" tabindex="0">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="pitches"></div>
+            <div>
+              <div class="row"><span class="game">CHC 1 @ MIL 1</span><span class="inning">Top 3</span></div>
+              <div class="matchup">Freddy Peralta vs Cody Bellinger</div>
+              <div class="situation" aria-label="0 and 0, 0 outs">
+                <div class="diamond" aria-hidden="true">
+                  <svg class="diamond-outline" viewBox="0 0 100 100">
+                    <path d="M50 88 L12 50 L50 12 L88 50 Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  </svg>
+                  <span class="base b2" title="2B"></span>
+                  <span class="base b3" title="3B"></span>
+                  <span class="base b1" title="1B"></span>
+                </div>
+                <div class="sit-count">0-0</div>
+                <div class="outs"><span class="out-dot"></span><span class="out-dot"></span><span class="out-dot"></span></div>
+              </div>
+              <ul class="pred">
+                <li class="best"><span>Four-Seam Fastball</span><span>39.8%</span></li>
+                <li><span>Changeup</span><span>24.5%</span></li>
+                <li><span>Slider</span><span>18.7%</span></li>
+                <li><span>Curveball</span><span>11.2%</span></li>
+                <li><span>Cutter</span><span>5.8%</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card-detail"><div class="inner">
+            <div class="stats">
+              <div class="stat-box">
+                <div class="lbl">Pitching</div>
+                <div class="stat-player">
+                  <img class="headshot" src="https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/642547/headshot/67/current" alt="Freddy Peralta" width="40" height="40">
+                  <div><div class="name">Freddy Peralta</div><div class="nums era">ERA 3.58</div></div>
+                </div>
+              </div>
+              <div class="stat-box">
+                <div class="lbl">At bat</div>
+                <div class="stat-player">
+                  <img class="headshot" src="https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/641355/headshot/67/current" alt="Cody Bellinger" width="40" height="40">
+                  <div><div class="name">Cody Bellinger</div><div class="nums slash">.266 / .328 / .444</div></div>
+                </div>
+              </div>
+            </div>
+            <p class="empty">No pitches yet</p>
+          </div></div>
+        </div>
+      </article>
+    </div>
+  </section>
+
   <div class="debug-head">
     <label>API URL<input id="api" type="url"></label>
     <label>Pitcher ID<input id="pitcher" type="number" value="477132"></label>
