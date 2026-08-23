@@ -1,5 +1,5 @@
 const MLB = "https://statsapi.mlb.com/api";
-const API = new URLSearchParams(location.search).get("api") || "https://sims-statistics-villa-infrared.trycloudflare.com/";
+const API = new URLSearchParams(location.search).get("api") || "https://sims-statistics-villa-infrared.trycloudflare.com";
 const TYPE = {SI:0,CH:1,FF:2,ST:3,FC:4,FS:5,SL:6,CU:7,SV:8,KC:9,FO:10,PO:11,FA:12,UN:13,CS:14,EP:15,KN:16,SC:17};
 const TYPE_ALIAS = {FT:"SI", SF:"FS"};
 const TYPE_CODE = Object.fromEntries(Object.entries(TYPE).map(([k, v]) => [v, k]));
@@ -386,34 +386,53 @@ function card(item, i) {
 
 const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
 const ANIM_MS = 450;
+const CLOSE_MS = 180;
 const LIST_GAP = 16;
 let animating = false;
 
-function snapshotCards() {
-  return new Map([...document.querySelectorAll(".card")].map(c => [c, c.getBoundingClientRect()]));
+function beginMotion() {
+  animating = true;
+}
+
+function endMotion() {
+  clearMotionStyles();
+  animating = false;
 }
 
 function detailOverlay(el) {
-  const d = el?.querySelector(".card-detail");
-  return d && getComputedStyle(d).position === "absolute" ? d : null;
+  return el?.classList.contains("down-only") ? el.querySelector(".card-detail") : null;
 }
 
 function clearPushes() {
   document.querySelectorAll(".card").forEach(c => {
     c.style.top = "";
+    c.style.transform = "";
   });
   const list = document.getElementById("list");
   if (list) list.style.paddingBottom = "";
 }
 
-/** Push overlapping same-column cards; pad the list so graphs clear the expand. */
-function applyPushes() {
+function clearMotionStyles() {
+  document.querySelectorAll(".card").forEach(c => {
+    c.style.transition = "";
+    c.style.transform = "";
+    c.style.width = "";
+    c.style.height = "";
+  });
+  document.querySelectorAll(".card-detail").forEach(d => {
+    d.style.transition = "";
+    if (d.style.height === "0px") d.style.height = "";
+  });
   const list = document.getElementById("list");
+  if (list) list.style.transition = "";
+}
+
+function computePushes(excludeEl = null) {
   const cards = [...document.querySelectorAll(".card")];
-  const nextTop = new Map(cards.map(c => [c, ""]));
+  const tops = new Map(cards.map(c => [c, 0]));
 
   const open = cards
-    .filter(el => el.classList.contains("expanded"))
+    .filter(el => el.classList.contains("expanded") && el !== excludeEl)
     .map(el => ({ el, detail: detailOverlay(el) }))
     .filter(x => x.detail)
     .sort((a, b) => a.el.getBoundingClientRect().top - b.el.getBoundingClientRect().top);
@@ -436,14 +455,14 @@ function applyPushes() {
           c,
           layoutTop: r.top - push,
           height: r.height,
+          width: r.width,
           left: r.left,
           right: r.right,
         };
       })
       .filter(x => {
         const overlapX = Math.min(x.right, panelRight) - Math.max(x.left, panelLeft);
-        const overlapY = panelBottom - x.layoutTop;
-        return overlapX > 0 && overlapY > 0;
+        return overlapX > x.width * 0.5 && x.layoutTop >= er.bottom - 2;
       })
       .sort((a, b) => a.layoutTop - b.layoutTop);
 
@@ -451,23 +470,19 @@ function applyPushes() {
     for (const item of col) {
       if (item.layoutTop >= clearBelow - 1) break;
       const need = clearBelow - item.layoutTop;
-      const prev = parseFloat(nextTop.get(item.c)) || 0;
-      nextTop.set(item.c, Math.max(prev, need) + "px");
-      clearBelow = item.layoutTop + Math.max(prev, need) + item.height + LIST_GAP;
+      const prev = tops.get(item.c) || 0;
+      const next = Math.max(prev, need);
+      tops.set(item.c, next);
+      clearBelow = item.layoutTop + next + item.height + LIST_GAP;
     }
   }
 
-  for (const c of cards) {
-    const t = nextTop.get(c) || "";
-    if (c.style.top !== t) c.style.top = t;
-  }
-
-  if (!list) return;
-  let pad = "";
-  if (open.length) {
+  let pad = 0;
+  const list = document.getElementById("list");
+  if (list && open.length) {
     const bottoms = cards.map(c => {
       const r = c.getBoundingClientRect();
-      const push = parseFloat(c.style.top) || 0;
+      const push = tops.get(c) || 0;
       return r.bottom - push;
     });
     const layoutBottom = bottoms.length ? Math.max(...bottoms) : list.getBoundingClientRect().bottom;
@@ -482,9 +497,20 @@ function applyPushes() {
       overflow = Math.max(overflow, er.bottom + detail.scrollHeight - 1 - layoutBottom);
       detail.style.height = saved;
     }
-    if (overflow > 0) pad = overflow + LIST_GAP + "px";
+    if (overflow > 0) pad = overflow;
   }
-  if (list.style.paddingBottom !== pad) list.style.paddingBottom = pad;
+
+  return { tops, pad };
+}
+
+function applyPushes() {
+  const { tops, pad } = computePushes();
+  for (const c of document.querySelectorAll(".card")) {
+    const px = tops.get(c) || 0;
+    c.style.top = px > 0 ? px + "px" : "";
+  }
+  const list = document.getElementById("list");
+  if (list) list.style.paddingBottom = pad > 0 ? pad + LIST_GAP + "px" : "";
 }
 
 function applyLayout(el, open) {
@@ -497,81 +523,90 @@ function applyLayout(el, open) {
   }
 }
 
-function playFlip(first, onDone, subject = null) {
-  const cards = [...document.querySelectorAll(".card")];
-  const last = snapshotCards();
-  animating = true;
-  const overlays = [];
-  const moving = new Set();
+function panelHeight(overlay) {
+  if (!overlay) return 0;
+  const saved = overlay.style.height;
+  overlay.style.height = "";
+  const h = overlay.scrollHeight;
+  overlay.style.height = saved;
+  return h;
+}
 
-  cards.forEach(c => {
-    const a = first.get(c);
-    const b = last.get(c);
-    if (!a || !b) return;
-    const dx = a.left - b.left;
-    const dy = a.top - b.top;
-    const grows = Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1;
-    const overlay = c === subject && c.classList.contains("expanded") ? detailOverlay(c) : null;
+function animateExpand(el, onDone) {
+  beginMotion();
+  applyLayout(el, true);
+  clearPushes();
 
-    if (overlay) {
-      c.getAnimations().forEach(anim => anim.cancel());
-      const h = overlay.scrollHeight;
-      overlay.style.height = "0px";
-      overlays.push({ el: overlay, h });
-      moving.add(c);
-    } else if (grows) {
-      c.getAnimations().forEach(anim => anim.cancel());
-      c.style.width = a.width + "px";
-      c.style.height = a.height + "px";
-      moving.add(c);
-    } else if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-      c.getAnimations().forEach(anim => anim.cancel());
-      c.style.transform = `translate(${dx}px, ${dy}px)`;
-      moving.add(c);
-    }
-  });
+  const overlay = detailOverlay(el);
+  if (overlay) overlay.style.height = "0px";
 
-  if (!moving.size && !overlays.length) {
-    animating = false;
-    if (onDone) onDone();
-    return;
-  }
+  const { tops, pad } = computePushes();
+  const h = panelHeight(overlay);
+  const list = document.getElementById("list");
+  if (list && pad > 0) list.style.paddingBottom = pad + LIST_GAP + "px";
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      cards.forEach(c => {
-        if (!moving.has(c)) return;
-        const a = first.get(c);
-        const b = last.get(c);
-        if (!a || !b) return;
-        const grows = Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1;
-        if (grows && !(c === subject && detailOverlay(c))) {
-          c.style.transition = `width ${ANIM_MS}ms ${EASE}, height ${ANIM_MS}ms ${EASE}`;
-          c.style.width = b.width + "px";
-          c.style.height = b.height + "px";
-        } else if (c.style.transform) {
-          c.style.transition = `transform ${ANIM_MS}ms ${EASE}`;
-          c.style.transform = "none";
+      if (overlay) {
+        overlay.style.transition = `height ${ANIM_MS}ms ${EASE}`;
+        overlay.style.height = h + "px";
+      }
+      const topTrans = `top ${ANIM_MS}ms ${EASE}`;
+      for (const [c, px] of tops) {
+        if (px > 0) {
+          c.style.transition = topTrans;
+          c.style.top = px + "px";
         }
-      });
-      overlays.forEach(({ el, h }) => {
-        el.style.transition = `height ${ANIM_MS}ms ${EASE}`;
-        el.style.height = h + "px";
-      });
+      }
       setTimeout(() => {
-        moving.forEach(c => {
-          c.style.transition = "";
-          c.style.transform = "";
-          c.style.width = "";
-          c.style.height = "";
-        });
-        overlays.forEach(({ el }) => {
-          el.style.transition = "";
-          el.style.height = "";
-        });
-        animating = false;
-        if (onDone) onDone();
+        if (overlay) overlay.style.height = "";
+        applyPushes();
+        endMotion();
+        onDone?.();
       }, ANIM_MS + 20);
+    });
+  });
+}
+
+function animateCollapse(el, onDone) {
+  beginMotion();
+  const overlay = detailOverlay(el);
+  const { tops: fromTops, pad: fromPad } = computePushes();
+  const { tops: toTops, pad: toPad } = computePushes(el);
+  if (overlay) overlay.style.height = panelHeight(overlay) + "px";
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (overlay) {
+        overlay.style.transition = `height ${CLOSE_MS}ms ${EASE}`;
+        overlay.style.height = "0px";
+      }
+      const topTrans = `top ${CLOSE_MS}ms ${EASE}`;
+      for (const c of document.querySelectorAll(".card")) {
+        const from = fromTops.get(c) || 0;
+        const to = toTops.get(c) || 0;
+        if (from === to) continue;
+        c.style.transition = "";
+        c.style.top = from + "px";
+      }
+      void document.body.offsetHeight;
+      for (const c of document.querySelectorAll(".card")) {
+        const from = fromTops.get(c) || 0;
+        const to = toTops.get(c) || 0;
+        if (from === to) continue;
+        c.style.transition = topTrans;
+        c.style.top = to + "px";
+      }
+      const list = document.getElementById("list");
+      if (list && fromPad !== toPad) {
+        list.style.transition = `padding-bottom ${CLOSE_MS}ms ${EASE}`;
+        list.style.paddingBottom = toPad > 0 ? toPad + LIST_GAP + "px" : "0px";
+      }
+      setTimeout(() => {
+        if (overlay) overlay.style.height = "";
+        endMotion();
+        onDone?.();
+      }, CLOSE_MS + 20);
     });
   });
 }
@@ -592,44 +627,24 @@ function fillStats(i) {
 
 function toggleExpanded(i) {
   const el = document.querySelector(`.card[data-index="${i}"]`);
-  if (!el || animating) return;
-  const pk = items[i].gamePk;
+  const item = items[i];
+  if (!el || !item || animating) return;
+  const pk = item.gamePk;
   const opening = !expandedPks.has(pk);
 
   if (!opening) {
     el.classList.remove("ready");
-    animating = true;
-    const overlay = detailOverlay(el);
-    if (overlay) {
-      overlay.style.height = overlay.scrollHeight + "px";
-      requestAnimationFrame(() => {
-        overlay.style.transition = `height 180ms ${EASE}`;
-        overlay.style.height = "0px";
-      });
-    }
-    setTimeout(() => {
-      const first = snapshotCards();
+    animateCollapse(el, () => {
       expandedPks.delete(pk);
       applyLayout(el, false);
-      if (overlay) {
-        overlay.style.transition = "";
-        overlay.style.height = "";
-      }
       applyPushes();
-      playFlip(first, null, el);
-    }, 180);
+    });
     return;
   }
 
-  const first = snapshotCards();
   expandedPks.add(pk);
-  applyLayout(el, true);
-  applyPushes();
-  playFlip(first, () => {
-    el.classList.add("ready");
-    applyPushes();
-  }, el);
-  loadStats(items[i]).then(() => fillStats(i));
+  animateExpand(el, () => el.classList.add("ready"));
+  loadStats(item).then(() => fillStats(i));
 }
 
 function upsertItem(ab) {
