@@ -1,5 +1,5 @@
 const MLB = "https://statsapi.mlb.com/api";
-const API = new URLSearchParams(location.search).get("api") || "https://sims-statistics-villa-infrared.trycloudflare.com";
+const API = new URLSearchParams(location.search).get("api") || "https://pitchpredict-910442.tail42c403.ts.net";
 const TYPE = {SI:0,CH:1,FF:2,ST:3,FC:4,FS:5,SL:6,CU:7,SV:8,KC:9,FO:10,PO:11,FA:12,UN:13,CS:14,EP:15,KN:16,SC:17};
 const TYPE_ALIAS = {FT:"SI", SF:"FS"};
 const TYPE_CODE = Object.fromEntries(Object.entries(TYPE).map(([k, v]) => [v, k]));
