@@ -1,0 +1,4 @@
+node_modules/
+scripts/layout-report.json
+package-lock.json
+.idea/

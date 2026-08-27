@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guess the pitch — Pitch Predict</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav class="site-nav" aria-label="Site">
+    <a href="index.html">Live at-bats</a>
+    <span class="site-nav-sep" aria-hidden="true">·</span>
+    <span class="site-nav-current">Guess the pitch</span>
+  </nav>
+
+  <header class="game-header">
+    <h1>Guess the pitch</h1>
+    <p id="meta" class="game-meta">Loading a random at-bat…</p>
+  </header>
+
+  <section class="game-score" aria-label="Accuracy">
+    <div class="game-score-card">
+      <div class="lbl">You</div>
+      <div class="val" id="you-acc">—</div>
+      <div class="sub" id="you-sub">0 / 0</div>
+    </div>
+    <div class="game-score-card">
+      <div class="lbl">Model</div>
+      <div class="val" id="model-acc">—</div>
+      <div class="sub" id="model-sub">0 / 0</div>
+    </div>
+  </section>
+
+  <div id="board" class="game-board" aria-live="polite"></div>
+
+  <div class="game-actions">
+    <button type="button" id="next-ab" class="game-btn" hidden>Next at-bat</button>
+    <button type="button" id="skip" class="game-btn game-btn-ghost" hidden>Skip at-bat</button>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>

@@ -7,6 +7,11 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <nav class="site-nav" aria-label="Site">
+    <span class="site-nav-current">Live at-bats</span>
+    <span class="site-nav-sep" aria-hidden="true">·</span>
+    <a href="game.html">Guess the pitch</a>
+  </nav>
   <h1>Live at-bats</h1>
   <div id="meta">Loading…</div>
   <div id="list"></div>
@@ -45,6 +50,7 @@
     </div>
   </section>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="columns.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

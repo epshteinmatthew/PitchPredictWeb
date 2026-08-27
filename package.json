@@ -1,0 +1,10 @@
+{
+  "name": "pitchpredictweb",
+  "private": true,
+  "scripts": {
+    "test:layout": "node scripts/test-layout.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

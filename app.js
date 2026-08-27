@@ -191,20 +191,40 @@ function atBat(feed, gamePk) {
   };
 }
 
+const predMemo = new Map();
+
 async function predict(body, yr) {
   const key = `p2:${body.pitcher_id}:${body.batter_id}:${body.at_bat_number}:${body.pitch_number}:${body.pitch_types_so_far.join("-")}:${body.pitch_calls_so_far.join("-")}`;
+  if (predMemo.has(key)) return predMemo.get(key);
+
   const hit = sessionStorage.getItem(key);
-  if (hit) return normalizeRanked(JSON.parse(hit));
-  const [avg, obp, slg] = await slash(body.batter_id, yr);
-  const r = await fetch(`${API}/predict/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, batter_avg: avg, batter_obp: obp, batter_slg: slg }),
-  });
-  if (!r.ok) throw new Error("predict " + r.status);
-  const ranked = normalizeRanked(await r.json());
-  sessionStorage.setItem(key, JSON.stringify(ranked));
-  return ranked;
+  if (hit) {
+    const ranked = normalizeRanked(JSON.parse(hit));
+    predMemo.set(key, ranked);
+    return ranked;
+  }
+
+  const job = (async () => {
+    const [avg, obp, slg] = await slash(body.batter_id, yr);
+    const r = await fetch(`${API}/predict/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, batter_avg: avg, batter_obp: obp, batter_slg: slg }),
+    });
+    if (!r.ok) throw new Error("predict " + r.status);
+    const ranked = normalizeRanked(await r.json());
+    try { sessionStorage.setItem(key, JSON.stringify(ranked)); } catch { /* quota */ }
+    predMemo.set(key, ranked);
+    return ranked;
+  })();
+
+  predMemo.set(key, job);
+  try {
+    return await job;
+  } catch (e) {
+    predMemo.delete(key);
+    throw e;
+  }
 }
 
 function fingerprint(ab) {
@@ -420,231 +440,40 @@ function card(item, i) {
   </article>`;
 }
 
-const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
-const ANIM_MS = 450;
+const OPEN_MS = 450;
 const CLOSE_MS = 180;
-const LIST_GAP = 16;
 let animating = false;
 
-function beginMotion() {
-  animating = true;
-}
-
-function endMotion() {
-  clearMotionStyles();
-  animating = false;
-}
-
-function detailOverlay(el) {
-  return el?.classList.contains("down-only") ? el.querySelector(".card-detail") : null;
-}
-
-function clearPushes() {
-  document.querySelectorAll(".card").forEach(c => {
-    c.style.top = "";
-    c.style.transform = "";
-  });
-  const list = document.getElementById("list");
-  if (list) list.style.paddingBottom = "";
-}
-
-function clearMotionStyles() {
-  document.querySelectorAll(".card").forEach(c => {
-    c.style.transition = "";
-    c.style.transform = "";
-    c.style.width = "";
-    c.style.height = "";
-  });
-  document.querySelectorAll(".card-detail").forEach(d => {
-    d.style.transition = "";
-    if (d.style.height === "0px") d.style.height = "";
-  });
-  const list = document.getElementById("list");
-  if (list) list.style.transition = "";
-}
-
-function computePushes(excludeEl = null) {
-  const cards = [...document.querySelectorAll(".card")];
-  const tops = new Map(cards.map(c => [c, 0]));
-
-  const open = cards
-    .filter(el => el.classList.contains("expanded") && el !== excludeEl)
-    .map(el => ({ el, detail: detailOverlay(el) }))
-    .filter(x => x.detail)
-    .sort((a, b) => a.el.getBoundingClientRect().top - b.el.getBoundingClientRect().top);
-
-  for (const { el, detail } of open) {
-    const saved = detail.style.height;
-    detail.style.height = "";
-    const er = el.getBoundingClientRect();
-    const panelBottom = er.bottom + detail.scrollHeight - 1;
-    const panelLeft = er.left;
-    const panelRight = er.right;
-    detail.style.height = saved;
-
-    const col = cards
-      .filter(c => c !== el)
-      .map(c => {
-        const r = c.getBoundingClientRect();
-        const push = parseFloat(c.style.top) || 0;
-        return {
-          c,
-          layoutTop: r.top - push,
-          height: r.height,
-          width: r.width,
-          left: r.left,
-          right: r.right,
-        };
-      })
-      .filter(x => {
-        const overlapX = Math.min(x.right, panelRight) - Math.max(x.left, panelLeft);
-        return overlapX > x.width * 0.5 && x.layoutTop >= er.bottom - 2;
-      })
-      .sort((a, b) => a.layoutTop - b.layoutTop);
-
-    let clearBelow = panelBottom + LIST_GAP;
-    for (const item of col) {
-      if (item.layoutTop >= clearBelow - 1) break;
-      const need = clearBelow - item.layoutTop;
-      const prev = tops.get(item.c) || 0;
-      const next = Math.max(prev, need);
-      tops.set(item.c, next);
-      clearBelow = item.layoutTop + next + item.height + LIST_GAP;
-    }
-  }
-
-  let pad = 0;
-  const list = document.getElementById("list");
-  if (list && open.length) {
-    const bottoms = cards.map(c => {
-      const r = c.getBoundingClientRect();
-      const push = tops.get(c) || 0;
-      return r.bottom - push;
-    });
-    const layoutBottom = bottoms.length ? Math.max(...bottoms) : list.getBoundingClientRect().bottom;
-    let overflow = 0;
-    for (const c of cards) {
-      overflow = Math.max(overflow, c.getBoundingClientRect().bottom - layoutBottom);
-    }
-    for (const { el, detail } of open) {
-      const saved = detail.style.height;
-      detail.style.height = "";
-      const er = el.getBoundingClientRect();
-      overflow = Math.max(overflow, er.bottom + detail.scrollHeight - 1 - layoutBottom);
-      detail.style.height = saved;
-    }
-    if (overflow > 0) pad = overflow;
-  }
-
-  return { tops, pad };
-}
-
-function applyPushes() {
-  const { tops, pad } = computePushes();
-  for (const c of document.querySelectorAll(".card")) {
-    const px = tops.get(c) || 0;
-    c.style.top = px > 0 ? px + "px" : "";
-  }
-  const list = document.getElementById("list");
-  if (list) list.style.paddingBottom = pad > 0 ? pad + LIST_GAP + "px" : "";
+function waitMs(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function applyLayout(el, open) {
   if (!el) return;
   if (open) {
-    el.classList.add("expanded", "down-only");
-    el.classList.remove("ready");
+    el.classList.add("expanded");
+    el.classList.remove("ready", "collapsing");
   } else {
-    el.classList.remove("expanded", "down-only", "ready");
+    el.classList.remove("expanded", "ready", "collapsing");
   }
 }
 
-function panelHeight(overlay) {
-  if (!overlay) return 0;
-  const saved = overlay.style.height;
-  overlay.style.height = "";
-  const h = overlay.scrollHeight;
-  overlay.style.height = saved;
-  return h;
-}
-
-function animateExpand(el, onDone) {
-  beginMotion();
+async function animateExpand(el) {
+  animating = true;
   applyLayout(el, true);
-  clearPushes();
-
-  const overlay = detailOverlay(el);
-  if (overlay) overlay.style.height = "0px";
-
-  const { tops, pad } = computePushes();
-  const h = panelHeight(overlay);
-  const list = document.getElementById("list");
-  if (list && pad > 0) list.style.paddingBottom = pad + LIST_GAP + "px";
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (overlay) {
-        overlay.style.transition = `height ${ANIM_MS}ms ${EASE}`;
-        overlay.style.height = h + "px";
-      }
-      const topTrans = `top ${ANIM_MS}ms ${EASE}`;
-      for (const [c, px] of tops) {
-        if (px > 0) {
-          c.style.transition = topTrans;
-          c.style.top = px + "px";
-        }
-      }
-      setTimeout(() => {
-        if (overlay) overlay.style.height = "";
-        applyPushes();
-        endMotion();
-        onDone?.();
-      }, ANIM_MS + 20);
-    });
-  });
+  await waitMs(OPEN_MS + 20);
+  el.classList.add("ready");
+  animating = false;
 }
 
-function animateCollapse(el, onDone) {
-  beginMotion();
-  const overlay = detailOverlay(el);
-  const { tops: fromTops, pad: fromPad } = computePushes();
-  const { tops: toTops, pad: toPad } = computePushes(el);
-  if (overlay) overlay.style.height = panelHeight(overlay) + "px";
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (overlay) {
-        overlay.style.transition = `height ${CLOSE_MS}ms ${EASE}`;
-        overlay.style.height = "0px";
-      }
-      const topTrans = `top ${CLOSE_MS}ms ${EASE}`;
-      for (const c of document.querySelectorAll(".card")) {
-        const from = fromTops.get(c) || 0;
-        const to = toTops.get(c) || 0;
-        if (from === to) continue;
-        c.style.transition = "";
-        c.style.top = from + "px";
-      }
-      void document.body.offsetHeight;
-      for (const c of document.querySelectorAll(".card")) {
-        const from = fromTops.get(c) || 0;
-        const to = toTops.get(c) || 0;
-        if (from === to) continue;
-        c.style.transition = topTrans;
-        c.style.top = to + "px";
-      }
-      const list = document.getElementById("list");
-      if (list && fromPad !== toPad) {
-        list.style.transition = `padding-bottom ${CLOSE_MS}ms ${EASE}`;
-        list.style.paddingBottom = toPad > 0 ? toPad + LIST_GAP + "px" : "0px";
-      }
-      setTimeout(() => {
-        if (overlay) overlay.style.height = "";
-        endMotion();
-        onDone?.();
-      }, CLOSE_MS + 20);
-    });
-  });
+async function animateCollapse(el) {
+  animating = true;
+  el.classList.remove("ready");
+  el.classList.add("collapsing");
+  el.classList.remove("expanded");
+  await waitMs(CLOSE_MS + 20);
+  el.classList.remove("collapsing");
+  animating = false;
 }
 
 function fillStats(i) {
@@ -658,10 +487,9 @@ function fillStats(i) {
   if (slashEl) slashEl.textContent = `${fmtRate(st.avg)} / ${fmtRate(st.obp)} / ${fmtRate(st.slg)}`;
   el.dataset.contentKey = contentKey(item);
   el.dataset.detailKey = detailKey(item);
-  if (el.classList.contains("expanded")) applyPushes();
 }
 
-function toggleExpanded(i) {
+async function toggleExpanded(i) {
   const el = document.querySelector(`.card[data-index="${i}"]`);
   const item = items[i];
   if (!el || !item || animating) return;
@@ -669,18 +497,15 @@ function toggleExpanded(i) {
   const opening = !expandedPks.has(pk);
 
   if (!opening) {
-    el.classList.remove("ready");
-    animateCollapse(el, () => {
-      expandedPks.delete(pk);
-      applyLayout(el, false);
-      applyPushes();
-    });
+    await animateCollapse(el);
+    expandedPks.delete(pk);
     return;
   }
 
   expandedPks.add(pk);
-  animateExpand(el, () => el.classList.add("ready"));
+  const expand = animateExpand(el);
   loadStats(item).then(() => fillStats(i));
+  await expand;
 }
 
 function upsertItem(ab) {
@@ -762,79 +587,83 @@ function patchCard(el, item, i) {
   return true;
 }
 
-function syncList({ onlyPk = null, relayout = false } = {}) {
+function syncList({ onlyPk = null } = {}) {
   const list = document.getElementById("list");
   if (!items.length) {
-    if (!list.querySelector(".empty")) {
-      list.innerHTML = `<p class="empty">No live at-bats right now.</p>`;
-    }
-    clearPushes();
+    list.innerHTML = `<p class="empty">No live at-bats right now.</p>`;
     return;
   }
   list.querySelector(".empty")?.remove();
 
-  let structureChanged = false;
   const live = new Set(items.map(x => x.gamePk));
   list.querySelectorAll(".card").forEach(el => {
     if (!live.has(+el.dataset.pk)) {
       expandedPks.delete(+el.dataset.pk);
       el.remove();
-      structureChanged = true;
     }
   });
 
+  const created = new Map();
   items.forEach((item, i) => {
     let el = list.querySelector(`[data-pk="${item.gamePk}"]`);
-    if (onlyPk != null && item.gamePk !== onlyPk) {
-      if (el) el.dataset.index = i;
+    if (el) {
+      if (onlyPk == null || item.gamePk === onlyPk) patchCard(el, item, i);
+      else el.dataset.index = i;
       return;
     }
-    if (el) {
-      patchCard(el, item, i);
-    } else {
-      list.insertAdjacentHTML("beforeend", card(item, i));
-      el = list.querySelector(`[data-pk="${item.gamePk}"]`);
-      if (el) {
-        el.dataset.contentKey = contentKey(item);
-        el.dataset.mainKey = mainKey(item);
-        el.dataset.detailKey = detailKey(item);
-      }
-      structureChanged = true;
+    if (onlyPk != null && item.gamePk !== onlyPk) return;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = card(item, i);
+    el = wrap.firstElementChild;
+    el.dataset.contentKey = contentKey(item);
+    el.dataset.mainKey = mainKey(item);
+    el.dataset.detailKey = detailKey(item);
+    if (expandedPks.has(item.gamePk)) {
+      applyLayout(el, true);
+      el.classList.add("ready");
     }
+    created.set(item.gamePk, el);
   });
 
-  if (relayout || structureChanged) applyPushes();
+  const final = items.map((item, i) => {
+    const el = list.querySelector(`[data-pk="${item.gamePk}"]`) || created.get(item.gamePk);
+    if (el) el.dataset.index = i;
+    return el;
+  }).filter(Boolean);
+
+  CardColumns.packCards(list, final);
 }
 
 function renderList() {
   const list = document.getElementById("list");
-  list.innerHTML = items.length
-    ? items.map((item, i) => card(item, i)).join("")
-    : `<p class="empty">No live at-bats right now.</p>`;
-  list.querySelectorAll(".card").forEach(el => {
-    const item = items.find(x => x.gamePk === +el.dataset.pk);
-    if (!item) return;
+  if (!items.length) {
+    list.innerHTML = `<p class="empty">No live at-bats right now.</p>`;
+    return;
+  }
+  const cards = items.map((item, i) => {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = card(item, i);
+    const el = wrap.firstElementChild;
     el.dataset.contentKey = contentKey(item);
     el.dataset.mainKey = mainKey(item);
     el.dataset.detailKey = detailKey(item);
+    if (expandedPks.has(item.gamePk)) {
+      applyLayout(el, true);
+      el.classList.add("ready");
+    }
+    return el;
   });
-  for (const pk of expandedPks) {
-    const el = list.querySelector(`[data-pk="${pk}"]`);
-    if (!el) continue;
-    el.classList.remove("down-only", "ready", "expanded");
-    applyLayout(el, true);
-    el.classList.add("ready");
-  }
-  applyPushes();
+  list.innerHTML = "";
+  CardColumns.packCards(list, cards);
 }
 
-function updateCard(pk, { relayout = false } = {}) {
+function updateCard(pk) {
   if (animating) return;
   if (!document.querySelector(".card")) {
     if (items.length) renderList();
     return;
   }
-  syncList({ onlyPk: pk, relayout });
+  syncList({ onlyPk: pk });
 }
 
 function updateMeta(extra = "") {
@@ -843,44 +672,75 @@ function updateMeta(extra = "") {
   meta.textContent = `${items.length} live · ${livePks.size} games · ${date} ${new Date().toLocaleTimeString()}${extra ? ` · ${extra}` : ""}`;
 }
 
-const SCHED_MS = 45000;
-const LIVE_MS = 1500;
-const LIVE_MS_HIDDEN = 8000;
-const FEED_CONCURRENCY = 3;
+const SCHED_MS = 30000;
+const POLL_ACTIVE_MS = 100;
+const POLL_IDLE_MS = 500;
+const POLL_BREAK_MS = 800;
+const POLL_HIDDEN_MS = 2000;
+const POLL_WS_FALLBACK_MS = 3000;
+const MAX_IN_FLIGHT_PER_GAME = 2;
+
+const WS_HOST = "ws.statsapi.mlb.com";
+const WS_KEEPALIVE = "Gameday5";
+const WS_KEEPALIVE_MS = 8000;
+const WS_RECONNECT_MS = 2500;
+const WS_MAX_BACKOFF_MS = 30000;
 
 const livePks = new Set();
-/** @type {Map<number, { timecode: string|null, fails: number, backoffUntil: number, fetching: boolean }>} */
+/** @type {Map<number, object>} */
 const gameState = new Map();
 let schedBusy = false;
-let liveBusy = false;
-let liveTimer = null;
-
-function liveDelay() {
-  return document.hidden ? LIVE_MS_HIDDEN : LIVE_MS;
-}
-
-async function mapPool(list, limit, fn) {
-  const q = [...list];
-  const n = Math.min(limit, q.length) || 0;
-  await Promise.all(Array.from({ length: n }, async () => {
-    while (q.length) await fn(q.shift());
-  }));
-}
 
 function stateFor(pk) {
   let st = gameState.get(pk);
   if (!st) {
-    st = { timecode: null, fails: 0, backoffUntil: 0, fetching: false };
+    st = {
+      timecode: null,
+      fails: 0,
+      backoffUntil: 0,
+      inFlight: 0,
+      predGen: 0,
+      activeAb: true,
+      inningBreak: false,
+      ws: null,
+      wsConnected: false,
+      wsClosed: true,
+      wsAttempt: 0,
+      wsKeepalive: null,
+      wsReconnect: null,
+      wsDebounce: null,
+      pollTimer: null,
+    };
     gameState.set(pk, st);
   }
   return st;
 }
 
+function noteFeedActivity(pk, feed) {
+  const st = stateFor(pk);
+  const play = feed?.liveData?.plays?.currentPlay;
+  const inningState = (feed?.liveData?.linescore?.inningState || "").toLowerCase();
+  const complete = play?.about?.isComplete === true;
+  const hasResult = Boolean(play?.result?.event?.trim());
+  const hasBatter = Boolean(play?.matchup?.batter?.id);
+  st.activeAb = !complete && !hasResult && hasBatter;
+  st.inningBreak = /^(middle|end)$/.test(inningState) && !st.activeAb;
+}
+
+function pollDelayMs(st) {
+  if (document.hidden) return POLL_HIDDEN_MS;
+  if (st.wsConnected) return POLL_WS_FALLBACK_MS;
+  if (st.inningBreak) return POLL_BREAK_MS;
+  if (st.activeAb) return POLL_ACTIVE_MS;
+  return POLL_IDLE_MS;
+}
+
 async function applyFeed(pk, feed, timecode) {
+  noteFeedActivity(pk, feed);
   const ab = atBat(feed, pk);
   if (!ab) {
     removeItem(pk);
-    if (!animating) syncList({ relayout: true });
+    if (!animating) syncList();
     return;
   }
 
@@ -889,23 +749,16 @@ async function applyFeed(pk, feed, timecode) {
   const st = stateFor(pk);
   st.timecode = timecode;
 
-  if (old && old._fp === fp) {
-    return;
-  }
+  if (old && old._fp === fp) return;
 
-  const isNew = !old;
-  const prevPitches = old?.view?.pitches?.length || 0;
   carryPreds(old, ab);
   ab._fp = fp;
   ab._predKey = predKey(ab);
   upsertItem(ab);
 
-  const needsPred = ab.view.pitches.some(p => !p.ranked)
-    || (!ab.view.done && !ab.ranked);
-
   const paint = () => {
-    const grew = ab.view.pitches.length !== prevPitches;
-    updateCard(pk, { relayout: isNew || (expandedPks.has(pk) && grew) });
+    if (animating) return;
+    updateCard(pk);
     ingestAccuracy();
     if (expandedPks.has(pk) && !ab.stats) {
       loadStats(ab).then(() => {
@@ -915,57 +768,168 @@ async function applyFeed(pk, feed, timecode) {
     }
   };
 
-  if (needsPred) {
-    await attachPreds(ab, year);
+  // Paint immediately — never block the live path on /predict/
+  paint();
+  // Warm batter slash line for the next predict round-trip
+  slash(ab.body.batter_id, year).catch(() => {});
+
+  const needsPred = ab.view.pitches.some(p => !p.ranked)
+    || (!ab.view.done && !ab.ranked);
+  if (!needsPred) return;
+
+  const gen = (st.predGen = (st.predGen || 0) + 1);
+  attachPreds(ab, year).then(() => {
+    if (st.predGen !== gen) return;
     if (items.find(x => x.gamePk === pk) !== ab) return;
     paint();
-  } else {
-    paint();
-  }
+  });
 }
 
-async function pollOneGame(pk) {
+async function pollOneGame(pk, { force = false } = {}) {
   const st = stateFor(pk);
-  if (st.fetching || Date.now() < st.backoffUntil) return;
+  if (!livePks.has(pk)) return;
+  if (st.inFlight >= MAX_IN_FLIGHT_PER_GAME) return;
+  if (!force && Date.now() < st.backoffUntil) return;
 
+  st.inFlight += 1;
   try {
-    const stamps = await get(`${MLB}/v1.1/game/${pk}/feed/live/timestamps`);
-    const latest = Array.isArray(stamps) && stamps.length ? stamps[stamps.length - 1] : null;
-    if (latest && latest === st.timecode) {
+    let latest = null;
+    if (!force) {
+      try {
+        const stamps = await get(`${MLB}/v1.1/game/${pk}/feed/live/timestamps`);
+        latest = Array.isArray(stamps) && stamps.length ? stamps[stamps.length - 1] : null;
+        if (latest && latest === st.timecode) {
+          st.fails = 0;
+          return;
+        }
+      } catch {
+        /* fall through to full feed */
+      }
+    }
+
+    const feed = await get(`${MLB}/v1.1/game/${pk}/feed/live`);
+    const tc = latest || feed.metaData?.timeStamp || feed.metaData?.wait || `t${Date.now()}`;
+    if (!force && st.timecode && tc === st.timecode) {
+      noteFeedActivity(pk, feed);
       st.fails = 0;
       return;
     }
-
-    st.fetching = true;
-    const feed = await get(`${MLB}/v1.1/game/${pk}/feed/live`);
-    const tc = latest || feed.metaData?.timeStamp || feed.metaData?.wait || `t${Date.now()}`;
     await applyFeed(pk, feed, tc);
     st.fails = 0;
+    updateMeta();
   } catch (e) {
     st.fails += 1;
     st.backoffUntil = Date.now() + Math.min(30000, 1000 * (2 ** Math.min(st.fails, 5)));
   } finally {
-    st.fetching = false;
+    st.inFlight = Math.max(0, st.inFlight - 1);
   }
 }
 
-async function pollLiveGames() {
-  if (liveBusy || !livePks.size) return;
-  liveBusy = true;
+function clearWsTimers(st) {
+  if (st.wsKeepalive) { clearInterval(st.wsKeepalive); st.wsKeepalive = null; }
+  if (st.wsReconnect) { clearTimeout(st.wsReconnect); st.wsReconnect = null; }
+  if (st.wsDebounce) { clearTimeout(st.wsDebounce); st.wsDebounce = null; }
+}
+
+function scheduleWsReconnect(pk) {
+  const st = stateFor(pk);
+  if (st.wsClosed || st.wsReconnect) return;
+  const delay = Math.min(WS_RECONNECT_MS * (1.6 ** st.wsAttempt), WS_MAX_BACKOFF_MS);
+  st.wsAttempt += 1;
+  st.wsReconnect = setTimeout(() => {
+    st.wsReconnect = null;
+    subscribeGameday(pk);
+  }, delay);
+}
+
+function subscribeGameday(pk) {
+  const st = stateFor(pk);
+  if (st.ws && (st.ws.readyState === WebSocket.OPEN || st.ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  st.wsClosed = false;
+
+  let ws;
   try {
-    await mapPool([...livePks], FEED_CONCURRENCY, pollOneGame);
-    updateMeta();
-  } finally {
-    liveBusy = false;
+    ws = new WebSocket(`wss://${WS_HOST}/api/v1/game/push/subscribe/gameday/${pk}`);
+  } catch {
+    scheduleWsReconnect(pk);
+    return;
   }
+  st.ws = ws;
+
+  ws.onopen = () => {
+    if (st.wsClosed) return;
+    st.wsConnected = true;
+    st.wsAttempt = 0;
+    try { ws.send(WS_KEEPALIVE); } catch { /* ignore */ }
+    st.wsKeepalive = setInterval(() => {
+      try {
+        if (ws.readyState === WebSocket.OPEN) ws.send(WS_KEEPALIVE);
+      } catch { /* ignore */ }
+    }, WS_KEEPALIVE_MS);
+    scheduleGamePoll(pk);
+  };
+
+  ws.onmessage = () => {
+    if (st.wsClosed) return;
+    if (st.wsDebounce) clearTimeout(st.wsDebounce);
+    st.wsDebounce = setTimeout(() => {
+      st.wsDebounce = null;
+      pollOneGame(pk, { force: true });
+    }, 80);
+  };
+
+  ws.onerror = () => { /* onclose reconnects */ };
+
+  ws.onclose = () => {
+    clearWsTimers(st);
+    st.ws = null;
+    st.wsConnected = false;
+    if (st.wsClosed || !livePks.has(pk)) return;
+    scheduleWsReconnect(pk);
+    scheduleGamePoll(pk);
+  };
 }
 
-function scheduleLiveLoop() {
-  clearTimeout(liveTimer);
-  liveTimer = setTimeout(async () => {
-    await pollLiveGames();
-    scheduleLiveLoop();
-  }, liveDelay());
+function unsubscribeGameday(pk) {
+  const st = gameState.get(pk);
+  if (!st) return;
+  st.wsClosed = true;
+  st.wsConnected = false;
+  clearWsTimers(st);
+  try { st.ws?.close(); } catch { /* ignore */ }
+  st.ws = null;
+}
+
+function scheduleGamePoll(pk) {
+  const st = stateFor(pk);
+  if (st.pollTimer) clearTimeout(st.pollTimer);
+  if (!livePks.has(pk)) return;
+
+  st.pollTimer = setTimeout(async () => {
+    st.pollTimer = null;
+    if (!livePks.has(pk)) return;
+    await pollOneGame(pk);
+    scheduleGamePoll(pk);
+  }, pollDelayMs(st));
+}
+
+function startGame(pk) {
+  livePks.add(pk);
+  stateFor(pk);
+  subscribeGameday(pk);
+  scheduleGamePoll(pk);
+  pollOneGame(pk, { force: true });
+}
+
+function stopGame(pk) {
+  livePks.delete(pk);
+  const st = gameState.get(pk);
+  if (st?.pollTimer) clearTimeout(st.pollTimer);
+  unsubscribeGameday(pk);
+  gameState.delete(pk);
+  removeItem(pk);
 }
 
 async function refreshSchedule() {
@@ -980,13 +944,11 @@ async function refreshSchedule() {
     const next = new Set(games.map(g => g.gamePk));
 
     for (const pk of [...livePks]) {
-      if (!next.has(pk)) {
-        livePks.delete(pk);
-        gameState.delete(pk);
-        removeItem(pk);
-      }
+      if (!next.has(pk)) stopGame(pk);
     }
-    for (const pk of next) livePks.add(pk);
+    for (const pk of next) {
+      if (!livePks.has(pk)) startGame(pk);
+    }
 
     expandedPks = new Set([...expandedPks].filter(pk => next.has(pk)));
     updateMeta();
@@ -998,6 +960,7 @@ async function refreshSchedule() {
   }
 }
 
+CardColumns.observeColumns(document.getElementById("list"));
 document.getElementById("list").addEventListener("click", e => {
   if (e.target.closest(".pitcher-name")) {
     e.stopPropagation();
@@ -1026,16 +989,18 @@ document.addEventListener("keydown", e => {
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) {
-    refreshSchedule().then(() => pollLiveGames());
-    scheduleLiveLoop();
+  if (document.hidden) return;
+  refreshSchedule();
+  for (const pk of livePks) {
+    pollOneGame(pk, { force: true });
+    scheduleGamePoll(pk);
   }
 });
-
-refreshSchedule().then(() => {
-  pollLiveGames();
-  scheduleLiveLoop();
+window.addEventListener("focus", () => {
+  for (const pk of livePks) pollOneGame(pk, { force: true });
 });
+
+refreshSchedule();
 setInterval(refreshSchedule, SCHED_MS);
 
 const WIN = 20;
