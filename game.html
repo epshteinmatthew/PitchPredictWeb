@@ -14,8 +14,12 @@
   </nav>
 
   <header class="game-header">
-    <h1>Guess the pitch</h1>
-    <p id="meta" class="game-meta">Loading a random at-bat…</p>
+    <h1 id="game-title">Guess the pitch</h1>
+    <div class="game-mode" role="group" aria-label="Game mode">
+      <a href="game.html" id="mode-daily" class="game-mode-btn">Daily</a>
+      <a href="game.html?mode=free" id="mode-free" class="game-mode-btn">Free play</a>
+    </div>
+    <p id="meta" class="game-meta">Loading today’s challenge…</p>
   </header>
 
   <section class="game-score" aria-label="Accuracy">
@@ -30,6 +34,8 @@
       <div class="sub" id="model-sub">0 / 0</div>
     </div>
   </section>
+
+  <div id="daily-grid" class="daily-grid" hidden aria-label="Daily progress"></div>
 
   <div id="board" class="game-board" aria-live="polite"></div>
 

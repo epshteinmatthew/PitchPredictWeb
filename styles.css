@@ -394,7 +394,7 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
 }
 .acc-mode-btn + .acc-mode-btn { border-left: 1px solid #ddd; }
 .acc-mode-btn.active {
-  background: #041e42;
+  background: black;
   color: #fff;
 }
 .acc { margin: 0 0 1.5rem; max-width: 100%; }
@@ -441,7 +441,38 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
 
 /* —— Guess-the-pitch game —— */
 .game-header { margin-bottom: .75rem; }
-.game-meta { color: #555; font-size: .9rem; margin: 0; }
+.game-meta { color: #555; font-size: .9rem; margin: .5rem 0 0; }
+.game-mode {
+  display: inline-flex;
+  gap: 0;
+  margin: .5rem 0 0;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.game-mode-btn {
+  appearance: none;
+  border: 0;
+  background: #fff;
+  color: #555;
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+  padding: .4rem .85rem;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: inherit;
+}
+.game-mode-btn + .game-mode-btn { border-left: 1px solid #ddd; }
+.game-mode-btn:hover { color: #111; background: #f7f7f7; }
+.game-mode-btn.active {
+  background: black;
+  color: #fff;
+}
+.game-mode-btn.active:hover {
+  color: #fff;
+  background: black;
+}
 .game-score {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -631,3 +662,74 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
   border: 1px solid #ddd;
 }
 .game-btn-ghost:hover { filter: none; background: #f7f7f7; }
+
+.daily-progress {
+  font-size: .75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #888;
+  margin: 0 0 .35rem;
+}
+.daily-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  margin: 0 0 1rem;
+  max-width: 26rem;
+}
+.daily-grid-cell {
+  font-size: 1.45rem;
+  line-height: 1;
+  width: 1.65rem;
+  height: 1.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.daily-grid-cell.pending {
+  border: 2px solid #ddd;
+  border-radius: 4px;
+  background: #f5f5f5;
+  box-sizing: border-box;
+}
+.daily-grid-cell.pending.current {
+  border-color: #111;
+  background: #fff;
+}
+.daily-results {
+  max-width: 22rem;
+  margin: .5rem 0 1.5rem;
+}
+.daily-results-kicker {
+  margin: 0 0 .35rem;
+  font-size: .8rem;
+  font-weight: 600;
+  color: #555;
+}
+.daily-results-marks {
+  margin: 0 0 .5rem;
+  font-size: 1.25rem;
+  letter-spacing: .06em;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.daily-results-score {
+  margin: 0 0 .75rem;
+  font-weight: 600;
+}
+.daily-share {
+  margin: 0 0 .75rem;
+  padding: .65rem .75rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+  font: inherit;
+  font-size: .85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.daily-results .empty a {
+  color: #555;
+}

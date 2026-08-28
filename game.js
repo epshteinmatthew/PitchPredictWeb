@@ -1,5 +1,6 @@
 const MLB = "https://statsapi.mlb.com/api";
-const API = new URLSearchParams(location.search).get("api")
+const params = new URLSearchParams(location.search);
+const API = params.get("api")
   || "https://pitchpredict-910442.tail42c403.ts.net";
 
 const TYPE = {SI:0,CH:1,FF:2,ST:3,FC:4,FS:5,SL:6,CU:7,SV:8,KC:9,FO:10,PO:11,FA:12,UN:13,CS:14,EP:15,KN:16,SC:17};
@@ -41,6 +42,10 @@ const OUTCOME = {
 
 const LOOKBACK_DAYS = 10;
 const MAX_GAME_TRIES = 12;
+const DAILY_PITCHES = 10;
+const DAILY_TZ = "America/Los_Angeles";
+
+const isDailyMode = params.get("mode") !== "free";
 
 const codeFrom = t => TYPE_CODE[t] ?? TYPE_CODE[+t] ?? t;
 const normCode = c => TYPE_ALIAS[c] || c || "";
@@ -66,6 +71,130 @@ const shuffle = arr => {
   }
   return a;
 };
+
+function dailyKey(d = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DAILY_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function hashStr(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededShuffle(arr, rng) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function dailyStorageKey(key = dailyKey()) {
+  return `pitch-daily:${key}`;
+}
+
+function loadDailyProgress(key = dailyKey()) {
+  try {
+    const raw = localStorage.getItem(dailyStorageKey(key));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveDailyProgress(data) {
+  try {
+    localStorage.setItem(dailyStorageKey(data.date), JSON.stringify(data));
+  } catch { /* quota */ }
+}
+
+function dailyProgressSnapshot(done = false) {
+  return {
+    date: source.dateKey || dailyKey(),
+    done,
+    pitchNum: pitchMarks.length,
+    marks: pitchMarks.slice(),
+    you: { hits: score.you.hits, total: score.you.total },
+    model: { hits: score.model.hits, total: score.model.total },
+  };
+}
+
+function persistDailyProgress(done = false) {
+  if (!isDailyMode) return;
+  const data = dailyProgressSnapshot(done);
+  saveDailyProgress(data);
+  dailySaved = data;
+}
+
+function restoreDailyProgress(saved) {
+  if (!saved) return;
+  pitchMarks = (saved.marks || []).slice();
+  score.you = { hits: saved.you?.hits ?? 0, total: saved.you?.total ?? 0 };
+  score.model = { hits: saved.model?.hits ?? 0, total: saved.model?.total ?? 0 };
+  dailyPitchNum = saved.pitchNum ?? pitchMarks.length;
+  if (DailySource) DailySource.cursor = dailyPitchNum;
+  dailySaved = saved;
+}
+
+function shareText(result) {
+  const marks = (result.marks || []).map(h => (h ? "🟩" : "🟥")).join("");
+  const you = result.you || { hits: 0, total: 0 };
+  const model = result.model || { hits: 0, total: 0 };
+  const beat = you.hits > model.hits
+    ? "Beat the model ✓"
+    : you.hits === model.hits
+      ? "Tied the model"
+      : "Model won";
+  return [
+    `Pitch Predict Daily ${result.date}`,
+    marks || "—",
+    `You ${you.hits}/${you.total} · Model ${model.hits}/${model.total}`,
+    beat,
+  ].join("\n");
+}
+
+async function loadFinalGames(lookback = LOOKBACK_DAYS) {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - lookback);
+  const sched = await get(
+    `${MLB}/v1/schedule?sportId=1&startDate=${isoDate(start)}&endDate=${isoDate(end)}`
+  );
+  const games = [];
+  for (const day of sched.dates || []) {
+    for (const g of day.games || []) {
+      if (g.status?.abstractGameState !== "Final") continue;
+      if (!g.gamePk) continue;
+      games.push({
+        gamePk: g.gamePk,
+        date: g.officialDate || day.date,
+      });
+    }
+  }
+  return games;
+}
 
 function arsenalCodes(mix) {
   const codes = new Set();
@@ -318,6 +447,116 @@ function pitchKind(call, details, code) {
   return kind;
 }
 
+function sliceDailyAb(ab, pitchIndex) {
+  const pitch = ab.pitches[pitchIndex];
+  if (!pitch) return null;
+  return {
+    ...ab,
+    id: `${ab.id}:${pitchIndex}`,
+    pitches: [{ ...pitch, n: 1 }],
+  };
+}
+
+function atBatsFromFeed(feed, gamePk, gameDate, mode = "historical") {
+  const teams = feed.gameData?.teams || {};
+  const awayAbbr = teams.away?.abbreviation || "AWY";
+  const homeAbbr = teams.home?.abbreviation || "HME";
+  const out = [];
+  let awayScore = 0;
+  let homeScore = 0;
+
+  for (const play of feed.liveData?.plays?.allPlays || []) {
+    const about = play.about || {};
+    const mu = play.matchup || {};
+    const res = play.result || {};
+    const events = (play.playEvents || []).filter(e => e.isPitch);
+    const startAway = awayScore;
+    const startHome = homeScore;
+    awayScore = res.awayScore ?? awayScore;
+    homeScore = res.homeScore ?? homeScore;
+
+    if (!about.isComplete || !mu.pitcher?.id || !mu.batter?.id || !events.length) continue;
+
+    const pitches = [];
+    for (let i = 0; i < events.length; i++) {
+      const d = events[i].details || {};
+      const type = normCode(d.type?.code || "");
+      if (!type || type === "UN") continue;
+      const code = d.call?.code || d.code;
+      const call = CODE[code] || "ball";
+      const kind = pitchKind(call, d, code);
+      const calls = [];
+      const types = [];
+      for (let j = 0; j < i; j++) {
+        const pd = events[j].details || {};
+        const pc = pd.call?.code || pd.code;
+        const pcall = CODE[pc] || "ball";
+        calls.push(CALL[pcall] ?? CALL.ball);
+        types.push(typeIndex(pd.type?.code));
+      }
+      const half = about.halfInning === "bottom" ? 1 : 0;
+      const bases = basesAtStart(play);
+      const cnt = countBefore(events, i);
+      pitches.push({
+        n: i + 1,
+        type,
+        call,
+        kind,
+        outcome: d.call?.description || outcomeName(call),
+        body: {
+          game_date: +String(gameDate).replaceAll("-", ""),
+          at_bat_number: (about.atBatIndex ?? 0) + 1,
+          pitch_number: i + 1,
+          pitcher_id: mu.pitcher.id,
+          batter_id: mu.batter.id,
+          pitch_calls_so_far: calls,
+          pitch_types_so_far: types,
+          outs: outsBefore(events, i),
+          on_1b: bases.on_1b,
+          on_2b: bases.on_2b,
+          on_3b: bases.on_3b,
+          offense_score: half ? startHome : startAway,
+          defense_score: half ? startAway : startHome,
+          inning: about.inning || 1,
+          inning_half: half,
+          p_throws: mu.pitchHand?.code === "L" ? 1 : 0,
+          stand: mu.batSide?.code === "L" ? 1 : 0,
+        },
+        view: {
+          count: `${cnt.balls}-${cnt.strikes}`,
+          outs: outsBefore(events, i),
+          on_1b: !!bases.on_1b,
+          on_2b: !!bases.on_2b,
+          on_3b: !!bases.on_3b,
+        },
+      });
+    }
+
+    if (pitches.length < 1) continue;
+
+    const half = about.halfInning === "bottom" ? 1 : 0;
+    const abKey = `${gamePk}:${about.atBatIndex ?? 0}`;
+    out.push({
+      id: abKey,
+      mode,
+      gamePk,
+      gameDate,
+      year: +String(gameDate).slice(0, 4),
+      result: res.description || res.event || "",
+      view: {
+        game: `${awayAbbr} ${startAway} @ ${homeAbbr} ${startHome}`,
+        inning: `${half ? "Bot" : "Top"} ${about.inning || 1}`,
+        pitcher: { id: mu.pitcher.id, name: mu.pitcher.fullName },
+        batter: { id: mu.batter.id, name: mu.batter.fullName },
+        matchup: `${mu.pitcher.fullName} vs ${mu.batter.fullName}`,
+        batSide: mu.batSide?.code === "L" ? "L" : "R",
+      },
+      pitches,
+    });
+  }
+  return out;
+}
+
 /** Historical source — swap later for a live feed that yields the same shape. */
 const HistoricalSource = {
   mode: "historical",
@@ -326,125 +565,8 @@ const HistoricalSource = {
 
   async loadGamePool() {
     if (this.gamePool) return this.gamePool;
-    const end = new Date();
-    const start = new Date(end);
-    start.setDate(end.getDate() - LOOKBACK_DAYS);
-    const sched = await get(
-      `${MLB}/v1/schedule?sportId=1&startDate=${isoDate(start)}&endDate=${isoDate(end)}`
-    );
-    const games = [];
-    for (const day of sched.dates || []) {
-      for (const g of day.games || []) {
-        if (g.status?.abstractGameState !== "Final") continue;
-        if (!g.gamePk) continue;
-        games.push({
-          gamePk: g.gamePk,
-          date: g.officialDate || day.date,
-        });
-      }
-    }
-    this.gamePool = shuffle(games);
+    this.gamePool = shuffle(await loadFinalGames());
     return this.gamePool;
-  },
-
-  atBatsFromFeed(feed, gamePk, gameDate) {
-    const teams = feed.gameData?.teams || {};
-    const awayAbbr = teams.away?.abbreviation || "AWY";
-    const homeAbbr = teams.home?.abbreviation || "HME";
-    const out = [];
-    let awayScore = 0;
-    let homeScore = 0;
-
-    for (const play of feed.liveData?.plays?.allPlays || []) {
-      const about = play.about || {};
-      const mu = play.matchup || {};
-      const res = play.result || {};
-      const events = (play.playEvents || []).filter(e => e.isPitch);
-      const startAway = awayScore;
-      const startHome = homeScore;
-      awayScore = res.awayScore ?? awayScore;
-      homeScore = res.homeScore ?? homeScore;
-
-      if (!about.isComplete || !mu.pitcher?.id || !mu.batter?.id || !events.length) continue;
-
-      const pitches = [];
-      for (let i = 0; i < events.length; i++) {
-        const d = events[i].details || {};
-        const type = normCode(d.type?.code || "");
-        if (!type || type === "UN") continue;
-        const code = d.call?.code || d.code;
-        const call = CODE[code] || "ball";
-        const kind = pitchKind(call, d, code);
-        const calls = [];
-        const types = [];
-        for (let j = 0; j < i; j++) {
-          const pd = events[j].details || {};
-          const pc = pd.call?.code || pd.code;
-          const pcall = CODE[pc] || "ball";
-          calls.push(CALL[pcall] ?? CALL.ball);
-          types.push(typeIndex(pd.type?.code));
-        }
-        const half = about.halfInning === "bottom" ? 1 : 0;
-        const bases = basesAtStart(play);
-        const cnt = countBefore(events, i);
-        pitches.push({
-          n: i + 1,
-          type,
-          call,
-          kind,
-          outcome: d.call?.description || outcomeName(call),
-          body: {
-            game_date: +String(gameDate).replaceAll("-", ""),
-            at_bat_number: (about.atBatIndex ?? 0) + 1,
-            pitch_number: i + 1,
-            pitcher_id: mu.pitcher.id,
-            batter_id: mu.batter.id,
-            pitch_calls_so_far: calls,
-            pitch_types_so_far: types,
-            outs: outsBefore(events, i),
-            on_1b: bases.on_1b,
-            on_2b: bases.on_2b,
-            on_3b: bases.on_3b,
-            offense_score: half ? startHome : startAway,
-            defense_score: half ? startAway : startHome,
-            inning: about.inning || 1,
-            inning_half: half,
-            p_throws: mu.pitchHand?.code === "L" ? 1 : 0,
-            stand: mu.batSide?.code === "L" ? 1 : 0,
-          },
-          view: {
-            count: `${cnt.balls}-${cnt.strikes}`,
-            outs: outsBefore(events, i),
-            on_1b: !!bases.on_1b,
-            on_2b: !!bases.on_2b,
-            on_3b: !!bases.on_3b,
-          },
-        });
-      }
-
-      if (pitches.length < 1) continue;
-
-      const half = about.halfInning === "bottom" ? 1 : 0;
-      const abKey = `${gamePk}:${about.atBatIndex ?? 0}`;
-      out.push({
-        id: abKey,
-        mode: "historical",
-        gamePk,
-        gameDate,
-        year: +String(gameDate).slice(0, 4),
-        result: res.description || res.event || "",
-        view: {
-          game: `${awayAbbr} ${startAway} @ ${homeAbbr} ${startHome}`,
-          inning: `${half ? "Bot" : "Top"} ${about.inning || 1}`,
-          pitcher: { id: mu.pitcher.id, name: mu.pitcher.fullName },
-          batter: { id: mu.batter.id, name: mu.batter.fullName },
-          matchup: `${mu.pitcher.fullName} vs ${mu.batter.fullName}`,
-          batSide: mu.batSide?.code === "L" ? "L" : "R",
-        },
-        pitches,
-      });
-    }
-    return out;
   },
 
   async nextAtBat() {
@@ -455,7 +577,7 @@ const HistoricalSource = {
       const g = pool[Math.floor(Math.random() * pool.length)];
       const feed = await get(`${MLB}/v1.1/game/${g.gamePk}/feed/live`);
       const abs = shuffle(
-        this.atBatsFromFeed(feed, g.gamePk, g.date).filter(ab => !this.seenAbs.has(ab.id))
+        atBatsFromFeed(feed, g.gamePk, g.date, "historical").filter(ab => !this.seenAbs.has(ab.id))
       );
       if (!abs.length) continue;
       const ab = abs[0];
@@ -468,19 +590,88 @@ const HistoricalSource = {
     }
     throw new Error("Could not find a playable at-bat — try again");
   },
+
+  hasMore() {
+    return true;
+  },
 };
 
-const source = HistoricalSource;
+/** Same 10 pitches for everyone on a given Pacific (PST/PDT) calendar day. */
+const DailySource = {
+  mode: "daily",
+  dateKey: dailyKey(),
+  playlist: null,
+  cursor: 0,
+  total: DAILY_PITCHES,
+
+  async ensurePlaylist() {
+    if (this.playlist) return this.playlist;
+    const rng = mulberry32(hashStr(`pitch-daily:${this.dateKey}`));
+    const games = seededShuffle(
+      [...(await loadFinalGames())].sort((a, b) => a.gamePk - b.gamePk),
+      rng
+    );
+    if (!games.length) throw new Error("No recent final games found");
+
+    const candidates = [];
+    for (const g of games) {
+      if (candidates.length >= DAILY_PITCHES * 4) break;
+      let feed;
+      try {
+        feed = await get(`${MLB}/v1.1/game/${g.gamePk}/feed/live`);
+      } catch {
+        continue;
+      }
+      for (const ab of atBatsFromFeed(feed, g.gamePk, g.date, "daily")) {
+        for (let i = 0; i < ab.pitches.length; i++) {
+          candidates.push({ ab, pitchIndex: i });
+        }
+      }
+    }
+    if (!candidates.length) throw new Error("Could not build today's daily — try again later");
+
+    this.playlist = seededShuffle(candidates, rng)
+      .slice(0, DAILY_PITCHES)
+      .map(({ ab, pitchIndex }) => sliceDailyAb(ab, pitchIndex))
+      .filter(Boolean);
+    if (this.playlist.length < DAILY_PITCHES) {
+      throw new Error("Could not build today's daily — try again later");
+    }
+    this.total = this.playlist.length;
+    return this.playlist;
+  },
+
+  async nextAtBat() {
+    await this.ensurePlaylist();
+    if (this.cursor >= this.playlist.length) {
+      const err = new Error("Daily complete");
+      err.code = "DAILY_COMPLETE";
+      throw err;
+    }
+    return this.playlist[this.cursor++];
+  },
+
+  hasMore() {
+    return !this.playlist || this.cursor < this.playlist.length;
+  },
+};
+
+const source = isDailyMode ? DailySource : HistoricalSource;
 
 const score = {
   you: { hits: 0, total: 0 },
   model: { hits: 0, total: 0 },
 };
 
+let pitchMarks = [];
+let dailyPitchNum = 0;
+let dailySaved = isDailyMode ? loadDailyProgress() : null;
+const readyQueue = [];
+
 let state = {
   ab: null,
   pitchIndex: 0,
-  phase: "loading", // loading | guess | reveal | done | error
+  phase: "loading", // loading | guess | reveal | done | daily-results | error
   lastGuess: null,
   lastActual: null,
   lastHit: null,
@@ -494,6 +685,39 @@ const board = document.getElementById("board");
 const meta = document.getElementById("meta");
 const nextAbBtn = document.getElementById("next-ab");
 const skipBtn = document.getElementById("skip");
+
+function gameQuery(extra = {}) {
+  const q = new URLSearchParams();
+  const api = params.get("api");
+  if (api) q.set("api", api);
+  for (const [k, v] of Object.entries(extra)) {
+    if (v != null && v !== "") q.set(k, v);
+  }
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+function setupChrome() {
+  document.title = isDailyMode
+    ? `Daily ${dailyKey()} — Pitch Predict`
+    : "Free play — Pitch Predict";
+  const daily = document.getElementById("mode-daily");
+  const free = document.getElementById("mode-free");
+  if (daily) {
+    daily.href = `game.html${gameQuery()}`;
+    daily.classList.toggle("active", isDailyMode);
+    daily.setAttribute("aria-current", isDailyMode ? "page" : "false");
+  }
+  if (free) {
+    free.href = `game.html${gameQuery({ mode: "free" })}`;
+    free.classList.toggle("active", !isDailyMode);
+    free.setAttribute("aria-current", !isDailyMode ? "page" : "false");
+  }
+}
+
+function dailyHasMorePlay() {
+  return isDailyMode && (source.hasMore() || readyQueue.length > 0);
+}
 
 function renderScore() {
   const you = score.you;
@@ -577,18 +801,79 @@ function arsenalButtons(mix, disabled, ensureCode, ctx) {
   </div>`;
 }
 
+function dailyShareGridHtml(marks, { total = DAILY_PITCHES, current = -1 } = {}) {
+  const cells = [];
+  for (let i = 0; i < total; i++) {
+    if (i < marks.length) {
+      cells.push(`<span class="daily-grid-cell done">${marks[i] ? "🟩" : "🟥"}</span>`);
+    } else {
+      const cur = i === current ? " current" : "";
+      cells.push(`<span class="daily-grid-cell pending${cur}" aria-hidden="true"></span>`);
+    }
+  }
+  return cells.join("");
+}
+
+function renderDailyGrid() {
+  const el = document.getElementById("daily-grid");
+  if (!el) return;
+  if (!isDailyMode) {
+    el.hidden = true;
+    return;
+  }
+  const total = source.total || DAILY_PITCHES;
+  const marks = pitchMarks;
+  const current = (state.phase === "guess" || state.phase === "reveal")
+    ? marks.length
+    : -1;
+  el.hidden = false;
+  el.innerHTML = dailyShareGridHtml(marks, { total, current });
+  el.setAttribute("aria-label", `Daily progress, ${marks.length} of ${total} pitches`);
+}
+
+function dailyResultsHtml(result) {
+  const you = result.you || { hits: 0, total: 0 };
+  const model = result.model || { hits: 0, total: 0 };
+  return `
+    <div class="daily-results">
+      <p class="daily-results-kicker">Daily ${esc(result.date)}</p>
+      <p class="daily-results-score">You ${you.hits}/${you.total} · Model ${model.hits}/${model.total}</p>
+      <button type="button" class="game-btn" id="copy-daily">Copy results</button>
+      <p class="empty"><a href="game.html${esc(gameQuery({ mode: "free" }))}">Free play</a> anytime</p>
+    </div>`;
+}
+
 function renderBoard() {
   const { ab, phase, pitchIndex, history, stats, mix, profile, lastGuess, lastActual, lastHit } = state;
-  nextAbBtn.hidden = phase !== "done" && phase !== "error";
-  skipBtn.hidden = phase === "loading" || phase === "done" || phase === "error";
-  nextAbBtn.textContent = phase === "error" ? "Try again" : "Next at-bat";
+  const moreDaily = dailyHasMorePlay();
+  const showResultsCta = isDailyMode && phase === "done" && !moreDaily;
+  nextAbBtn.hidden = phase !== "error" && phase !== "done";
+  skipBtn.hidden = isDailyMode || phase === "loading" || phase === "done" || phase === "error" || phase === "daily-results";
+  if (phase === "error") {
+    nextAbBtn.textContent = "Try again";
+  } else if (showResultsCta) {
+    nextAbBtn.textContent = "See daily results";
+  } else if (isDailyMode) {
+    nextAbBtn.textContent = dailyPitchNum >= (source.total || DAILY_PITCHES)
+      ? "See daily results"
+      : `Next pitch (${dailyPitchNum + 1}/${source.total || DAILY_PITCHES})`;
+  } else {
+    nextAbBtn.textContent = "Next at-bat";
+  }
 
+  if (phase === "daily-results") {
+    board.innerHTML = dailyResultsHtml(dailySaved || state.dailyResult);
+    renderDailyGrid();
+    return;
+  }
   if (phase === "loading") {
-    board.innerHTML = `<p class="empty">Loading at-bat…</p>`;
+    board.innerHTML = `<p class="empty">${isDailyMode ? "Loading today’s challenge…" : "Loading at-bat…"}</p>`;
+    renderDailyGrid();
     return;
   }
   if (phase === "error" || !ab) {
     board.innerHTML = `<p class="err">${esc(state.error || "Something went wrong.")}</p>`;
+    renderDailyGrid();
     return;
   }
 
@@ -615,17 +900,22 @@ function renderBoard() {
       <p class="game-prompt">Pitch ${pitch.n} of ${ab.pitches.length} — what's coming?</p>
       ${arsenalButtons(mix, state.busy, pitch.type, ctx)}`;
   } else if (phase === "reveal") {
+    const atAbEnd = pitchIndex + 1 >= ab.pitches.length;
+    let continueLabel = "Next pitch";
+    if (isDailyMode && atAbEnd && !dailyHasMorePlay()) {
+      continueLabel = "See daily results";
+    } else if (!isDailyMode && atAbEnd) {
+      continueLabel = "Next at-bat";
+    }
     mainAction = `
       <div class="game-reveal ${lastHit ? "hit" : "miss"}">
         <div class="game-reveal-line">You guessed <strong>${esc(name(lastGuess))}</strong></div>
         <div class="game-reveal-line">Actual: <strong>${esc(name(lastActual))}</strong>
           <span class="game-reveal-tag">${lastHit ? "Correct" : "Miss"}</span>
         </div>
-        <div class="game-reveal-outcome">${esc(pitch?.outcome || "")}</div>
+        ${isDailyMode ? "" : `<div class="game-reveal-outcome">${esc(pitch?.outcome || "")}</div>`}
       </div>
-      <button type="button" class="game-btn" id="continue-pitch">
-        ${pitchIndex + 1 >= ab.pitches.length ? "See at-bat result" : "Next pitch"}
-      </button>`;
+      <button type="button" class="game-btn" id="continue-pitch">${continueLabel}</button>`;
   } else if (phase === "done") {
     mainAction = `
       <p class="ab-result">${esc(ab.result || "At-bat complete")}</p>
@@ -678,6 +968,31 @@ function renderBoard() {
         </div></div>
       </div>
     </article>`;
+  renderDailyGrid();
+}
+
+function finalizeDaily() {
+  persistDailyProgress(true);
+  state.phase = "daily-results";
+  state.dailyResult = dailySaved;
+  state.ab = null;
+  nextAbBtn.hidden = true;
+  skipBtn.hidden = true;
+  setMeta(`Daily ${dailySaved.date} complete`);
+  renderBoard();
+}
+
+function showStoredDaily(result) {
+  dailySaved = result;
+  score.you = { hits: result.you?.hits || 0, total: result.you?.total || 0 };
+  score.model = { hits: result.model?.hits || 0, total: result.model?.total || 0 };
+  pitchMarks = (result.marks || []).slice();
+  state.phase = "daily-results";
+  state.dailyResult = result;
+  state.ab = null;
+  renderScore();
+  setMeta(result.done ? `Daily ${result.date} — already played` : `Daily ${result.date}`);
+  renderBoard();
 }
 
 async function gradeModel(pitch, yr, mix) {
@@ -690,6 +1005,7 @@ async function gradeModel(pitch, yr, mix) {
     score.model.total += 1;
     if (hit) score.model.hits += 1;
     renderScore();
+    if (isDailyMode) persistDailyProgress(false);
   } catch {
     /* model miss doesn't block play */
   }
@@ -709,6 +1025,10 @@ async function onGuess(code) {
 
   score.you.total += 1;
   if (hit) score.you.hits += 1;
+  if (isDailyMode) {
+    pitchMarks.push(hit);
+    persistDailyProgress(false);
+  }
   renderScore();
 
   const revealed = {
@@ -731,10 +1051,11 @@ function continueAfterReveal() {
   if (state.phase !== "reveal" || !state.ab) return;
   const next = state.pitchIndex + 1;
   if (next >= state.ab.pitches.length) {
-    state.phase = "done";
-    state.pitchIndex = next;
-    setMeta(`${state.ab.view.game} · ${state.ab.view.inning} · at-bat complete`);
-    renderBoard();
+    if (isDailyMode && !dailyHasMorePlay()) {
+      finalizeDaily();
+      return;
+    }
+    loadAtBat();
     return;
   }
   state.pitchIndex = next;
@@ -763,8 +1084,7 @@ async function hydrateAtBat(ab) {
   };
 }
 
-const PRELOAD_TARGET = 3;
-const readyQueue = [];
+const PRELOAD_TARGET = isDailyMode ? DAILY_PITCHES : 3;
 let preloadBusy = false;
 let preloadError = null;
 let readyWaiters = [];
@@ -794,16 +1114,25 @@ async function pumpPreload() {
   preloadError = null;
   try {
     while (readyQueue.length < PRELOAD_TARGET) {
-      const pack = await hydrateAtBat(await source.nextAtBat());
-      readyQueue.push(pack);
-      notifyReady();
+      try {
+        const pack = await hydrateAtBat(await source.nextAtBat());
+        readyQueue.push(pack);
+        notifyReady();
+      } catch (e) {
+        if (e.code === "DAILY_COMPLETE") break;
+        throw e;
+      }
     }
   } catch (e) {
     preloadError = e;
     if (!readyQueue.length) failReadyWaiters(e);
   } finally {
     preloadBusy = false;
-    if (readyQueue.length < PRELOAD_TARGET && !preloadError) {
+    if (
+      readyQueue.length < PRELOAD_TARGET
+      && !preloadError
+      && (!isDailyMode || source.hasMore())
+    ) {
       queueMicrotask(() => { pumpPreload(); });
     }
   }
@@ -832,6 +1161,7 @@ async function takeReadyAtBat() {
 }
 
 function applyPack(pack) {
+  if (isDailyMode) dailyPitchNum += 1;
   state = {
     ab: pack.ab,
     pitchIndex: 0,
@@ -846,11 +1176,23 @@ function applyPack(pack) {
     busy: false,
     error: null,
   };
-  setMeta(`${pack.ab.view.game} · ${pack.ab.view.inning} · ${source.mode} · pitch 1 of ${pack.ab.pitches.length}`);
+  const dailyBit = isDailyMode ? ` · pitch ${dailyPitchNum}/${source.total || DAILY_PITCHES}` : ` · ${source.mode}`;
+  setMeta(`${pack.ab.view.game} · ${pack.ab.view.inning}${dailyBit} · pitch 1 of ${pack.ab.pitches.length}`);
   renderBoard();
 }
 
 async function loadAtBat() {
+  if (isDailyMode && dailySaved?.done) {
+    showStoredDaily(dailySaved);
+    return;
+  }
+  if (isDailyMode && state.phase === "daily-results") return;
+
+  if (isDailyMode && state.phase === "done" && !dailyHasMorePlay()) {
+    finalizeDaily();
+    return;
+  }
+
   const instant = readyQueue.length > 0;
   if (!instant) {
     state = {
@@ -869,17 +1211,45 @@ async function loadAtBat() {
     };
     renderScore();
     renderBoard();
-    setMeta("Loading a random at-bat…");
+    setMeta(isDailyMode ? "Loading today’s challenge…" : "Loading a random at-bat…");
   }
 
   try {
     const pack = await takeReadyAtBat();
     applyPack(pack);
   } catch (e) {
+    if (e.code === "DAILY_COMPLETE") {
+      finalizeDaily();
+      return;
+    }
     state.phase = "error";
     state.error = e.message || String(e);
     setMeta("Could not load an at-bat");
     renderBoard();
+  }
+}
+
+async function copyDailyResults() {
+  const result = dailySaved || state.dailyResult;
+  if (!result) return;
+  const text = shareText(result);
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById("copy-daily");
+    if (btn) {
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = "Copy results"; }, 1500);
+    }
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
   }
 }
 
@@ -891,12 +1261,30 @@ board.addEventListener("click", e => {
   }
   if (e.target.closest("#continue-pitch")) {
     continueAfterReveal();
+    return;
+  }
+  if (e.target.closest("#copy-daily")) {
+    copyDailyResults();
   }
 });
 
 nextAbBtn.addEventListener("click", () => loadAtBat());
-skipBtn.addEventListener("click", () => loadAtBat());
+skipBtn.addEventListener("click", () => {
+  if (!isDailyMode) loadAtBat();
+});
+
+setupChrome();
+
+if (isDailyMode && dailySaved) {
+  restoreDailyProgress(dailySaved);
+}
 
 renderScore();
-pumpPreload();
-loadAtBat();
+renderDailyGrid();
+
+if (isDailyMode && dailySaved?.done) {
+  showStoredDaily(dailySaved);
+} else {
+  pumpPreload();
+  loadAtBat();
+}
