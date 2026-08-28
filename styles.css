@@ -478,7 +478,11 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
   grid-template-columns: 1fr 1fr;
   gap: .75rem;
   margin: 0 0 1rem;
-  max-width: 24rem;
+  max-width: 26rem;
+}
+.game-score[hidden],
+body.daily-mode .game-score {
+  display: none !important;
 }
 .game-score-card {
   border: 1px solid #ddd;
@@ -504,25 +508,88 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
   color: #888;
   font-variant-numeric: tabular-nums;
 }
-.game-board { margin-bottom: 1rem; max-width: 28rem; }
+.game-board {
+  margin-bottom: 1rem;
+  width: 100%;
+  max-width: 26rem;
+}
 .game-card {
   cursor: default;
   min-height: 0;
+  width: 100%;
 }
-.game-card .game { color: #111; }
+.game-card .card-body {
+  grid-template-rows: auto auto;
+}
+.game-card .card-main {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  width: 100%;
+  min-width: 0;
+}
+.game-card-head,
+.game-card-body {
+  width: 100%;
+  min-width: 0;
+}
+.game-card .card-detail {
+  width: 100%;
+  min-width: 0;
+}
+.game-card-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .35rem .5rem;
+}
+.game-card-meta .game {
+  font-weight: 800;
+  color: #111;
+}
+.game-card-meta .inning {
+  color: #666;
+  font-weight: 600;
+}
+.game-card-meta .inning::before {
+  content: "·";
+  margin-right: .5rem;
+  color: #ccc;
+}
+.game-card .matchup {
+  margin: .2rem 0;
+  font-weight: 600;
+}
 .game-card .base.on {
   background: #111;
   border-color: #111;
-}
-.game-card .pitch-log .preds strong { color: #111; }
-.game-card .card-body {
-  grid-template-rows: auto 1fr;
 }
 .game-card .card-detail > .inner {
   opacity: 1;
   visibility: visible;
   border-top: 0;
   margin-top: 0;
+  padding-top: 1rem;
+  width: 100%;
+  min-width: 0;
+}
+.game-card .stats {
+  width: 100%;
+  margin-bottom: .65rem;
+}
+.game-card .arsenal {
+  width: 100%;
+}
+.game-card .game-reveal {
+  width: 100%;
+  box-sizing: border-box;
+}
+.game-card .pitch-log .actual {
+  font-weight: 600;
+  color: #111;
+}
+.game-card .game-btn {
+  margin-bottom: 0;
 }
 .game-prompt {
   margin: .55rem 0 .45rem;
@@ -633,15 +700,13 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
   color: #555;
   font-size: .85rem;
 }
-.game-card .game-btn {
-  margin-bottom: 1rem;
-}
 .game-card .ab-result { color: #111; }
 .game-actions {
   display: flex;
   flex-wrap: wrap;
   gap: .5rem;
   margin-bottom: 2rem;
+  max-width: 26rem;
 }
 .game-btn {
   appearance: none;
@@ -679,14 +744,17 @@ h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 .25rem; }
   max-width: 26rem;
 }
 .daily-grid-cell {
-  font-size: 1.45rem;
-  line-height: 1;
-  width: 1.65rem;
-  height: 1.65rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 4px;
   flex-shrink: 0;
+  box-sizing: border-box;
+}
+.daily-grid-cell.done.hit {
+  background: #2e8b3a;
+}
+.daily-grid-cell.done.miss {
+  background: #d32f2f;
 }
 .daily-grid-cell.pending {
   border: 2px solid #ddd;

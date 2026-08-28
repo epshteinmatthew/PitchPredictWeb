@@ -453,8 +453,37 @@ function sliceDailyAb(ab, pitchIndex) {
   return {
     ...ab,
     id: `${ab.id}:${pitchIndex}`,
-    pitches: [{ ...pitch, n: 1 }],
+    priorPitches: ab.pitches.slice(0, pitchIndex),
+    pitchTotal: ab.pitches.length,
+    pitches: [{ ...pitch, n: pitchIndex + 1 }],
   };
+}
+
+function pitchesThrownSoFar(ab, pitchIndex, includeCurrent = false) {
+  const prior = ab.priorPitches ?? ab.pitches.slice(0, pitchIndex);
+  if (!includeCurrent) return prior;
+  const cur = ab.pitches[pitchIndex];
+  return cur ? [...prior, cur] : prior;
+}
+
+function pitchTipHtml(p) {
+  return `<div class="tip"><div class="tip-h">${esc(name(p.type))}</div><div class="outcome">${esc(p.outcome || outcomeName(p.call))}</div></div>`;
+}
+
+function pastPitchLogRow(p) {
+  return `<li>
+    <span class="dot-wrap"><span class="dot ${p.kind}">${p.n}</span>${pitchTipHtml(p)}</span>
+    <div>
+      <div class="actual">${esc(name(p.type))}</div>
+      <div class="outcome">${esc(p.outcome || outcomeName(p.call))}</div>
+    </div>
+  </li>`;
+}
+
+function pastPitchLogHtml(ab, pitchIndex, includeCurrent) {
+  const thrown = pitchesThrownSoFar(ab, pitchIndex, includeCurrent);
+  if (!thrown.length) return "";
+  return `<h3 class="section-title">Past pitches</h3><ul class="pitch-log">${thrown.map(pastPitchLogRow).join("")}</ul>`;
 }
 
 function atBatsFromFeed(feed, gamePk, gameDate, mode = "historical") {
@@ -701,6 +730,9 @@ function setupChrome() {
   document.title = isDailyMode
     ? `Daily ${dailyKey()} — Pitch Predict`
     : "Free play — Pitch Predict";
+  document.body.classList.toggle("daily-mode", isDailyMode);
+  const scoreEl = document.getElementById("game-score");
+  if (scoreEl) scoreEl.hidden = isDailyMode;
   const daily = document.getElementById("mode-daily");
   const free = document.getElementById("mode-free");
   if (daily) {
@@ -730,18 +762,6 @@ function renderScore() {
 
 function setMeta(text) {
   meta.textContent = text;
-}
-
-function pitchLogRow(p) {
-  const hit = p.userHit;
-  return `<li>
-    <span class="dot-wrap"><span class="dot ${p.kind}">${p.n}</span></span>
-    <div>
-      <div class="preds">Your guess: <strong>${esc(name(p.userGuess))}</strong></div>
-      <div class="actual ${hit ? "match" : "miss"}">Actual: ${esc(name(p.type))}</div>
-      <div class="outcome">${esc(p.outcome || outcomeName(p.call))}</div>
-    </div>
-  </li>`;
 }
 
 function fmtHintPct(share) {
@@ -805,7 +825,7 @@ function dailyShareGridHtml(marks, { total = DAILY_PITCHES, current = -1 } = {})
   const cells = [];
   for (let i = 0; i < total; i++) {
     if (i < marks.length) {
-      cells.push(`<span class="daily-grid-cell done">${marks[i] ? "🟩" : "🟥"}</span>`);
+      cells.push(`<span class="daily-grid-cell done ${marks[i] ? "hit" : "miss"}"></span>`);
     } else {
       const cur = i === current ? " current" : "";
       cells.push(`<span class="daily-grid-cell pending${cur}" aria-hidden="true"></span>`);
@@ -878,12 +898,12 @@ function renderBoard() {
   }
 
   const pitch = ab.pitches[pitchIndex];
+  const pitchTotal = ab.pitchTotal ?? ab.pitches.length;
+  const includeCurrent = phase === "reveal";
+  const pastLog = pastPitchLogHtml(ab, pitchIndex, includeCurrent);
   const viewSit = pitch?.view || history[history.length - 1]?.view || {
     count: "0-0", outs: 0, on_1b: false, on_2b: false, on_3b: false,
   };
-  const dots = history.map(p =>
-    `<span class="dot-wrap"><span class="dot ${p.kind}">${p.n}</span></span>`
-  ).join("");
 
   const ctx = phase === "guess" && pitch
     ? contextMix(profile, {
@@ -897,7 +917,7 @@ function renderBoard() {
   let mainAction = "";
   if (phase === "guess" && pitch) {
     mainAction = `
-      <p class="game-prompt">Pitch ${pitch.n} of ${ab.pitches.length} — what's coming?</p>
+      <p class="game-prompt">Pitch ${pitch.n} of ${pitchTotal} — what's coming?</p>
       ${arsenalButtons(mix, state.busy, pitch.type, ctx)}`;
   } else if (phase === "reveal") {
     const atAbEnd = pitchIndex + 1 >= ab.pitches.length;
@@ -922,22 +942,19 @@ function renderBoard() {
       <p class="empty">You ${score.you.hits}/${score.you.total} · Model ${score.model.hits}/${score.model.total}</p>`;
   }
 
-  const log = history.length
-    ? `<h3 class="section-title">Pitches so far</h3><ul class="pitch-log">${history.map(pitchLogRow).join("")}</ul>`
-    : `<p class="empty">No pitches yet — make your first guess</p>`;
-
   board.innerHTML = `
     <article class="card game-card expanded ready">
       <div class="card-body">
         <div class="card-main">
-          <div class="pitches">${dots}</div>
-          <div>
-            <div class="row">
+          <header class="game-card-head">
+            <div class="game-card-meta">
               <span class="game">${esc(ab.view.game)}</span>
               <span class="inning">${esc(ab.view.inning)}</span>
             </div>
             <div class="matchup">${esc(ab.view.matchup)}</div>
             ${phase === "done" ? "" : situationHtml(viewSit)}
+          </header>
+          <div class="game-card-body">
             ${mainAction}
           </div>
         </div>
@@ -964,7 +981,7 @@ function renderBoard() {
               </div>
             </div>
           </div>
-          ${log}
+          ${pastLog}
         </div></div>
       </div>
     </article>`;

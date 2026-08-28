@@ -22,7 +22,7 @@
     <p id="meta" class="game-meta">Loading today’s challenge…</p>
   </header>
 
-  <section class="game-score" aria-label="Accuracy">
+  <section id="game-score" class="game-score" aria-label="Accuracy">
     <div class="game-score-card">
       <div class="lbl">You</div>
       <div class="val" id="you-acc">—</div>
@@ -34,6 +34,12 @@
       <div class="sub" id="model-sub">0 / 0</div>
     </div>
   </section>
+  <script>
+    if (new URLSearchParams(location.search).get("mode") !== "free") {
+      document.getElementById("game-score")?.setAttribute("hidden", "");
+      document.body.classList.add("daily-mode");
+    }
+  </script>
 
   <div id="daily-grid" class="daily-grid" hidden aria-label="Daily progress"></div>
 
