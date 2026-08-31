@@ -130,8 +130,10 @@ function atBat(feed, gamePk) {
   const mu = play?.matchup || {};
   if (!play || !mu.pitcher?.id || !mu.batter?.id) return null;
   const half = about.halfInning === "bottom" ? 1 : 0;
-  const away = ls.teams?.away?.runs || 0;
-  const home = ls.teams?.home?.runs || 0;
+  const awayRuns = ls.teams?.away?.runs || 0;
+  const homeRuns = ls.teams?.home?.runs || 0;
+  const awayAbbr = feed.gameData?.teams?.away?.abbreviation || "AWY";
+  const homeAbbr = feed.gameData?.teams?.home?.abbreviation || "HME";
   const events = (play.playEvents || []).filter(e => e.isPitch);
   const calls = [], types = [];
   const pitches = events.map((p, i) => {
@@ -142,16 +144,32 @@ function atBat(feed, gamePk) {
     types.push(typeIndex(d.type?.code));
     let kind = KIND[call] || "ball";
     if (call === "hit_into_play" && (d.isOut || code === "X")) kind = "out";
+    const pd = p.pitchData || {};
+    const c = pd.coordinates || {};
     return {
       n: i + 1,
       kind,
       type: d.type?.code || "",
       call,
       outcome: d.call?.description || outcomeName(call),
+      px: Number.isFinite(c.pX) ? c.pX : null,
+      pz: Number.isFinite(c.pZ) ? c.pZ : null,
+      szTop: Number.isFinite(pd.strikeZoneTop) ? pd.strikeZoneTop : null,
+      szBot: Number.isFinite(pd.strikeZoneBottom) ? pd.strikeZoneBottom : null,
+      speed: Number.isFinite(pd.startSpeed) ? pd.startSpeed : null,
     };
   });
   const date = feed.gameData?.datetime?.officialDate || today();
   const off = feed.liveData?.linescore?.offense || {};
+  const scheduled = ls.scheduledInnings || 9;
+  const innings = (ls.innings || []).map(inn => ({
+    num: inn.num,
+    away: inn.away?.runs ?? null,
+    home: inn.home?.runs ?? null,
+  }));
+  while (innings.length < scheduled) {
+    innings.push({ num: innings.length + 1, away: null, home: null });
+  }
   return {
     gamePk,
     body: {
@@ -166,15 +184,15 @@ function atBat(feed, gamePk) {
       on_1b: off.first ? 1 : 0,
       on_2b: off.second ? 1 : 0,
       on_3b: off.third ? 1 : 0,
-      offense_score: half ? home : away,
-      defense_score: half ? away : home,
+      offense_score: half ? homeRuns : awayRuns,
+      defense_score: half ? awayRuns : homeRuns,
       inning: about.inning || ls.currentInning || 1,
       inning_half: half,
       p_throws: mu.pitchHand?.code === "L" ? 1 : 0,
       stand: mu.batSide?.code === "L" ? 1 : 0,
     },
     view: {
-      game: `${feed.gameData.teams.away.abbreviation} ${away} @ ${feed.gameData.teams.home.abbreviation} ${home}`,
+      game: `${awayAbbr} ${awayRuns} @ ${homeAbbr} ${homeRuns}`,
       inning: `${half ? "Bot" : "Top"} ${about.inning || ls.currentInning}`,
       count: `${play.count?.balls ?? 0}-${play.count?.strikes ?? 0}`,
       outs: play.count?.outs ?? ls.outs ?? 0,
@@ -187,6 +205,22 @@ function atBat(feed, gamePk) {
       done: !!about.isComplete,
       result: about.isComplete ? (play.result?.description || play.result?.event || "") : "",
       pitches,
+      batSide: mu.batSide?.code || "R",
+    },
+    linescore: {
+      away: {
+        abbr: awayAbbr,
+        runs: awayRuns,
+        hits: ls.teams?.away?.hits || 0,
+        errors: ls.teams?.away?.errors || 0,
+      },
+      home: {
+        abbr: homeAbbr,
+        runs: homeRuns,
+        hits: ls.teams?.home?.hits || 0,
+        errors: ls.teams?.home?.errors || 0,
+      },
+      innings,
     },
   };
 }
@@ -262,6 +296,8 @@ function predKey(ab) {
 function carryPreds(old, ab) {
   if (!old) return;
   if (old.stats) ab.stats = old.stats;
+  if (old.winProb) ab.winProb = old.winProb;
+  if (old._wpFp) ab._wpFp = old._wpFp;
   const sameAb = old.body?.at_bat_number === ab.body.at_bat_number
     && old.body?.batter_id === ab.body.batter_id
     && old.body?.pitcher_id === ab.body.pitcher_id;
@@ -274,6 +310,26 @@ function carryPreds(old, ab) {
   if (!ab.view.done && old.ranked && old._predKey === predKey(ab)) {
     ab.ranked = normalizeRanked(old.ranked);
     if (old.err) ab.err = old.err;
+  }
+}
+
+async function loadWinProb(item) {
+  if (!item) return null;
+  try {
+    const series = await get(`${MLB}/v1/game/${item.gamePk}/winProbability`);
+    item.winProb = (Array.isArray(series) ? series : [])
+      .map(p => ({
+        home: p.homeTeamWinProbability,
+        away: p.awayTeamWinProbability,
+        inning: p.about?.inning,
+        half: p.about?.halfInning,
+        atBatIndex: p.atBatIndex,
+      }))
+      .filter(p => Number.isFinite(p.home));
+    item._wpFp = item._fp || fingerprint(item);
+    return item.winProb;
+  } catch {
+    return item.winProb || null;
   }
 }
 
@@ -429,7 +485,17 @@ function card(item, i) {
       <div class="card-main">
         <div class="pitches">${dots}</div>
         <div>
-          <div class="row"><span class="game">${esc(v.game)}</span><span class="inning">${esc(v.inning)}</span></div>
+          <div class="row">
+            <span class="game-line">
+              <span class="game">${esc(v.game)}</span>
+              <button type="button" class="super-btn" data-super-pk="${item.gamePk}" aria-label="Open full game view" title="Full game view">
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                  <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </span>
+            <span class="inning">${esc(v.inning)}</span>
+          </div>
           <div class="matchup">${pitcherName(v.pitcher)} vs ${esc(v.batter.name)}</div>
           ${situationHtml(v)}
           ${pred}
@@ -438,6 +504,327 @@ function card(item, i) {
       ${cardDetail(item)}
     </div>
   </article>`;
+}
+
+let superPk = null;
+let winProbChart = null;
+
+const DOT_FILL = { ball: "#2e8b3a", strike: "#d32f2f", play: "#1e6fd9", out: "#7b1fa2" };
+
+function pitchZoneHtml(item) {
+  const all = item.view?.pitches || item.pitches || [];
+  const pitches = all.filter(p => p.px != null && p.pz != null);
+  if (!pitches.length) {
+    return `<div class="super-panel pitch-panel">
+      <h3 class="section-title">Pitch view</h3>
+      <p class="empty">No pitch locations yet</p>
+    </div>`;
+  }
+
+  const szTop = pitches.map(p => p.szTop).find(Number.isFinite) ?? 3.5;
+  const szBot = pitches.map(p => p.szBot).find(Number.isFinite) ?? 1.5;
+  const half = 17 / 24; // plate half-width (ft)
+
+  // Tight catcher's-view crop — zone dominates, room for balls outside
+  let xMin = -1.5, xMax = 1.5;
+  let zBot = 0.8, zTop = 4.0;
+  for (const p of pitches) {
+    xMin = Math.min(xMin, p.px - 0.2);
+    xMax = Math.max(xMax, p.px + 0.2);
+    zBot = Math.min(zBot, p.pz - 0.15);
+    zTop = Math.max(zTop, p.pz + 0.15);
+  }
+  xMin = Math.min(xMin, -half - 0.35);
+  xMax = Math.max(xMax, half + 0.35);
+  zBot = Math.max(0.4, Math.min(zBot, szBot - 0.1));
+  zTop = Math.max(zTop, szTop + 0.15);
+
+  const W = 260, H = 320;
+  // Room for Gameday-style outer shadow ring + gap + plate under the zone
+  const padL = 36, padR = 36, padT = 28, padB = 96;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const sx = x => padL + ((x - xMin) / (xMax - xMin)) * innerW;
+  const sy = z => padT + ((zTop - z) / (zTop - zBot)) * innerH;
+
+  // Inner 3×3 = actual strike zone (pitch coords map here)
+  const L = sx(-half), R = sx(half), T = sy(szTop), B = sy(szBot);
+  const zw = R - L, zh = B - T;
+  const cx = (L + R) / 2;
+  const cellW = zw / 3, cellH = zh / 3;
+  // Outer shadow ring ≈ one cell deep (Gameday 5×5 frame around the zone)
+  const oL = L - cellW, oR = R + cellW, oT = T - cellH, oB = B + cellH;
+
+  // Plate under the outer frame with a clear knees-to-ground gap; tip down
+  const plateGap = Math.max(14, cellH * 0.55);
+  const plateTop = oB + plateGap;
+  const pFlat = plateTop + Math.max(9, zh * 0.09);
+  const pTip = plateTop + Math.max(32, zh * 0.36);
+
+  const stroke = "#111";
+  const shadow = "#bbb";
+  // Outer ring: light wireframe only (shadow / chase zone)
+  const shadowGrid = [
+    ...[oL, L, R, oR].map(x =>
+      `<line x1="${x.toFixed(1)}" y1="${oT.toFixed(1)}" x2="${x.toFixed(1)}" y2="${oB.toFixed(1)}" stroke="${shadow}" stroke-width="1"/>`),
+    ...[oT, T, B, oB].map(y =>
+      `<line x1="${oL.toFixed(1)}" y1="${y.toFixed(1)}" x2="${oR.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${shadow}" stroke-width="1"/>`),
+  ].join("");
+  // Inner 3×3 only inside the real strike zone
+  const zoneGrid = [1, 2].map(i => {
+    const gx = L + cellW * i, gy = T + cellH * i;
+    return `<line x1="${gx.toFixed(1)}" y1="${T.toFixed(1)}" x2="${gx.toFixed(1)}" y2="${B.toFixed(1)}" stroke="#ccc" stroke-width="1"/>
+      <line x1="${L.toFixed(1)}" y1="${gy.toFixed(1)}" x2="${R.toFixed(1)}" y2="${gy.toFixed(1)}" stroke="#ccc" stroke-width="1"/>`;
+  }).join("");
+
+  const dots = pitches.map(p => {
+    const fill = DOT_FILL[p.kind] || "#555";
+    const x = sx(p.px), y = sy(p.pz);
+    return `<g>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="${fill}" stroke="#fff" stroke-width="2"/>
+      <text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="system-ui,sans-serif">${p.n}</text>
+    </g>`;
+  }).join("");
+
+  return `<div class="super-panel pitch-panel">
+    <h3 class="section-title">Pitch view</h3>
+    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" role="img" aria-label="Catcher's view pitch locations">
+      <rect x="${oL.toFixed(1)}" y="${oT.toFixed(1)}" width="${(oR - oL).toFixed(1)}" height="${(oB - oT).toFixed(1)}"
+        fill="#f7f7f7" stroke="${shadow}" stroke-width="1"/>
+      ${shadowGrid}
+      <rect x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${zw.toFixed(1)}" height="${zh.toFixed(1)}"
+        fill="#fff" stroke="${stroke}" stroke-width="2.25"/>
+      ${zoneGrid}
+      <path d="M${L.toFixed(1)} ${plateTop.toFixed(1)}
+        L${R.toFixed(1)} ${plateTop.toFixed(1)}
+        L${R.toFixed(1)} ${pFlat.toFixed(1)}
+        L${cx.toFixed(1)} ${pTip.toFixed(1)}
+        L${L.toFixed(1)} ${pFlat.toFixed(1)} Z"
+        fill="#fff" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="miter"/>
+      ${dots}
+    </svg>
+  </div>`;
+}
+function linescoreHtml(item) {
+  const ls = item.linescore;
+  if (!ls) {
+    return `<div class="super-panel">
+      <h3 class="section-title">Scoreboard</h3>
+      <p class="empty">No linescore</p>
+    </div>`;
+  }
+  const inns = ls.innings || [];
+  const head = inns.map(i => `<th>${i.num}</th>`).join("") + "<th>R</th><th>H</th><th>E</th>";
+  const cell = v => `<td>${v == null ? "" : esc(v)}</td>`;
+  const awayCells = inns.map(i => cell(i.away)).join("")
+    + cell(ls.away.runs) + cell(ls.away.hits) + cell(ls.away.errors);
+  const homeCells = inns.map(i => cell(i.home)).join("")
+    + cell(ls.home.runs) + cell(ls.home.hits) + cell(ls.home.errors);
+  return `<div class="super-panel">
+    <h3 class="section-title">Scoreboard</h3>
+    <div class="linescore-wrap">
+      <table class="linescore">
+        <thead><tr><th></th>${head}</tr></thead>
+        <tbody>
+          <tr><th>${esc(ls.away.abbr)}</th>${awayCells}</tr>
+          <tr><th>${esc(ls.home.abbr)}</th>${homeCells}</tr>
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function winProbPanelHtml(item) {
+  const home = item.linescore?.home?.abbr || "Home";
+  const last = item.winProb?.length ? item.winProb[item.winProb.length - 1] : null;
+  const pct = last ? `${Math.round(last.home)}%` : "—";
+  return `<div class="super-panel">
+    <div class="acc-head">
+      <h3 class="section-title super-wp-title">${esc(home)} win prob</h3>
+      <span class="acc-val super-wp-val">${pct}</span>
+    </div>
+    <div class="acc-wrap super-wp-wrap">
+      <canvas id="super-wp-chart"></canvas>
+    </div>
+  </div>`;
+}
+
+function drawWinProbChart(item) {
+  const canvas = document.getElementById("super-wp-chart");
+  if (!canvas || typeof Chart === "undefined") return;
+  const series = item.winProb || [];
+  const labels = series.map((_, i) => String(i + 1));
+  const data = series.map(p => Math.round(p.home * 10) / 10);
+  if (!winProbChart) {
+    if (Chart.Filler) Chart.register(Chart.Filler);
+    winProbChart = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          data,
+          borderColor: "#041e42",
+          backgroundColor: "rgba(4, 30, 66, 0.08)",
+          fill: "origin",
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        layout: { padding: 0 },
+        scales: {
+          x: { display: false },
+          y: {
+            min: 0,
+            max: 100,
+            ticks: { stepSize: 50, callback: v => v + "%", maxTicksLimit: 3, font: { size: 10 } },
+            grid: { color: "#eee" },
+            border: { display: false },
+          },
+        },
+      },
+    });
+    return;
+  }
+  winProbChart.data.labels = labels;
+  winProbChart.data.datasets[0].data = data;
+  winProbChart.update("none");
+}
+
+function superPredHtml(item) {
+  const v = item.view;
+  if (v.done) return `<p class="empty">Waiting for next batter</p>`;
+  if (item.err) return `<p class="err">${esc(item.err)}</p>`;
+  const ranked = (item.ranked || []).slice(0, 5)
+    .map(([t, p], j) => `<li class="${j === 0 && highConf(item.ranked) ? "best" : ""}"><span>${esc(name(t))}</span><span>${(p * 100).toFixed(1)}%</span></li>`)
+    .join("");
+  return `<ul class="pred">${ranked}</ul>`;
+}
+
+function superDetailInner(item) {
+  const v = item.view;
+  const st = item.stats;
+  const abResult = v.result
+    ? `<p class="ab-result">${esc(v.result)}</p>`
+    : "";
+  const log = v.pitches.length
+    ? `<h3 class="section-title">Past pitches</h3><ul class="pitch-log">${v.pitches.map(pitchLogRow).join("")}</ul>`
+    : `<p class="empty">No pitches yet</p>`;
+  return `
+    <div class="stats">
+      <div class="stat-box">
+        <div class="lbl">Pitching</div>
+        <div class="stat-player">${headshot(v.pitcher.id, v.pitcher.name)}<div><div class="name">${pitcherName(v.pitcher)}</div><div class="nums era">${st ? "ERA " + fmtEra(st.era) : "ERA —"}</div></div></div>
+      </div>
+      <div class="stat-box">
+        <div class="lbl">At bat</div>
+        <div class="stat-player">${headshot(v.batter.id, v.batter.name)}<div><div class="name">${esc(v.batter.name)}</div><div class="nums slash">${st ? `${fmtRate(st.avg)} / ${fmtRate(st.obp)} / ${fmtRate(st.slg)}` : "— / — / —"}</div></div></div>
+      </div>
+    </div>
+    ${abResult}
+    ${log}`;
+}
+
+function renderSuper() {
+  const root = document.getElementById("super-modal");
+  if (!root || superPk == null) return;
+  const item = items.find(x => x.gamePk === superPk);
+  if (!item) {
+    closeSuper();
+    return;
+  }
+  const v = item.view;
+  const panel = root.querySelector(".super-panel-root");
+  if (!panel) return;
+  if (winProbChart) {
+    winProbChart.destroy();
+    winProbChart = null;
+  }
+  panel.innerHTML = `
+    <header class="super-head">
+      <div class="row">
+        <span class="game">${esc(v.game)}</span>
+        <span class="inning">${esc(v.inning)}</span>
+      </div>
+      <button type="button" class="super-close" aria-label="Close full game view">×</button>
+    </header>
+    <div class="super-layout">
+      <div class="super-main">
+        <div class="card-main">
+          <div class="pitches">${(v.pitches || []).map(p =>
+            `<span class="dot-wrap"><span class="dot ${p.kind}">${p.n}</span>${tip(p)}</span>`
+          ).join("")}</div>
+          <div>
+            <div class="matchup">${pitcherName(v.pitcher)} vs ${esc(v.batter.name)}</div>
+            ${situationHtml(v)}
+            ${superPredHtml(item)}
+          </div>
+        </div>
+        <div class="super-detail">
+          ${superDetailInner(item)}
+        </div>
+      </div>
+      <aside class="super-side">
+        ${pitchZoneHtml(item)}
+        <div class="super-side-bottom">
+          ${winProbPanelHtml(item)}
+          ${linescoreHtml(item)}
+        </div>
+      </aside>
+    </div>`;
+  drawWinProbChart(item);
+}
+
+function openSuper(pk) {
+  superPk = pk;
+  document.body.classList.add("super-open");
+  const root = document.getElementById("super-modal");
+  if (root) {
+    root.hidden = false;
+    root.setAttribute("aria-hidden", "false");
+  }
+  renderSuper();
+  const item = items.find(x => x.gamePk === pk);
+  if (!item) return;
+  loadStats(item).then(() => {
+    if (superPk === pk) renderSuper();
+  });
+  loadWinProb(item).then(() => {
+    if (superPk === pk) renderSuper();
+  });
+}
+
+function closeSuper() {
+  superPk = null;
+  document.body.classList.remove("super-open");
+  const root = document.getElementById("super-modal");
+  if (root) {
+    root.hidden = true;
+    root.setAttribute("aria-hidden", "true");
+    const panel = root.querySelector(".super-panel-root");
+    if (panel) panel.innerHTML = "";
+  }
+  if (winProbChart) {
+    winProbChart.destroy();
+    winProbChart = null;
+  }
+}
+
+function refreshSuper(pk) {
+  if (superPk !== pk) return;
+  renderSuper();
+  const item = items.find(x => x.gamePk === pk);
+  if (!item) return;
+  if (item._wpFp !== (item._fp || fingerprint(item))) {
+    loadWinProb(item).then(() => {
+      if (superPk === pk) renderSuper();
+    });
+  }
 }
 
 const OPEN_MS = 450;
@@ -517,6 +904,7 @@ function upsertItem(ab) {
 function removeItem(pk) {
   items = items.filter(x => x.gamePk !== pk);
   expandedPks.delete(pk);
+  if (superPk === pk) closeSuper();
 }
 
 function contentKey(item) {
@@ -598,7 +986,9 @@ function syncList({ onlyPk = null } = {}) {
   const live = new Set(items.map(x => x.gamePk));
   list.querySelectorAll(".card").forEach(el => {
     if (!live.has(+el.dataset.pk)) {
-      expandedPks.delete(+el.dataset.pk);
+      const pk = +el.dataset.pk;
+      expandedPks.delete(pk);
+      if (superPk === pk) closeSuper();
       el.remove();
     }
   });
@@ -760,10 +1150,12 @@ async function applyFeed(pk, feed, timecode) {
     if (animating) return;
     updateCard(pk);
     ingestAccuracy();
+    if (superPk === pk) refreshSuper(pk);
     if (expandedPks.has(pk) && !ab.stats) {
       loadStats(ab).then(() => {
         const i = items.findIndex(x => x.gamePk === pk);
         if (i >= 0) fillStats(i);
+        if (superPk === pk) renderSuper();
       });
     }
   };
@@ -962,6 +1354,13 @@ async function refreshSchedule() {
 
 CardColumns.observeColumns(document.getElementById("list"));
 document.getElementById("list").addEventListener("click", e => {
+  const superBtn = e.target.closest(".super-btn");
+  if (superBtn) {
+    e.stopPropagation();
+    e.preventDefault();
+    openSuper(+superBtn.dataset.superPk);
+    return;
+  }
   if (e.target.closest(".pitcher-name")) {
     e.stopPropagation();
     return;
@@ -976,16 +1375,40 @@ document.getElementById("list").addEventListener("mouseover", e => {
 });
 document.getElementById("list").addEventListener("keydown", e => {
   if (e.key === "Enter") {
+    if (e.target.closest(".super-btn")) return;
     const c = e.target.closest(".card");
     if (c) toggleExpanded(+c.dataset.index);
   }
 });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape" && expandedPks.size) {
+  if (e.key !== "Escape") return;
+  if (superPk != null) {
+    closeSuper();
+    return;
+  }
+  if (expandedPks.size) {
     const open = document.querySelectorAll(".card.expanded");
     const last = open[open.length - 1];
     if (last) toggleExpanded(+last.dataset.index);
   }
+});
+
+const superModal = document.getElementById("super-modal");
+superModal?.addEventListener("click", e => {
+  if (e.target === superModal || e.target.classList.contains("super-backdrop")) {
+    closeSuper();
+    return;
+  }
+  if (e.target.closest(".super-close")) {
+    closeSuper();
+    return;
+  }
+  if (e.target.closest(".pitcher-name")) e.stopPropagation();
+});
+superModal?.addEventListener("mouseover", e => {
+  const el = e.target.closest(".pitcher-name");
+  if (!el || el.contains(e.relatedTarget)) return;
+  fillPitcherTip(el);
 });
 
 document.addEventListener("visibilitychange", () => {

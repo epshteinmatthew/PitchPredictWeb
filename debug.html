@@ -40,7 +40,7 @@
 
   <section class="debug-section">
     <h2>Card UI preview</h2>
-    <p class="debug-meta">Static sample cards using live styles. Click to expand/collapse — only cards below in the same column shift.</p>
+    <p class="debug-meta">Static sample cards using live styles. Click a card to expand/collapse. Use the expand control next to the score for the full game modal.</p>
     <div id="list">
       <article class="card" data-index="0" data-pk="9001" tabindex="0">
         <div class="card-body">
@@ -51,7 +51,17 @@
               <span class="dot-wrap"><span class="dot strike">3</span></span>
             </div>
             <div>
-              <div class="row"><span class="game">NYY 2 @ BOS 1</span><span class="inning">Top 5</span></div>
+              <div class="row">
+                <span class="game-line">
+                  <span class="game">NYY 2 @ BOS 1</span>
+                  <button type="button" class="super-btn" data-super-pk="9001" aria-label="Open full game view" title="Full game view">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                      <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </span>
+                <span class="inning">Top 5</span>
+              </div>
               <div class="matchup">Gerrit Cole vs Rafael Devers</div>
               <div class="situation" aria-label="1 and 2, 1 out">
                 <div class="diamond" aria-hidden="true">
@@ -129,7 +139,17 @@
               <span class="dot-wrap"><span class="dot strike">1</span></span>
             </div>
             <div>
-              <div class="row"><span class="game">LAD 0 @ SD 0</span><span class="inning">Bot 1</span></div>
+              <div class="row">
+                <span class="game-line">
+                  <span class="game">LAD 0 @ SD 0</span>
+                  <button type="button" class="super-btn" data-super-pk="9002" aria-label="Open full game view" title="Full game view">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                      <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </span>
+                <span class="inning">Bot 1</span>
+              </div>
               <div class="matchup">Yoshinobu Yamamoto vs Manny Machado</div>
               <div class="situation" aria-label="0 and 1, 0 outs">
                 <div class="diamond" aria-hidden="true">
@@ -195,7 +215,17 @@
               <span class="dot-wrap"><span class="dot play">5</span></span>
             </div>
             <div>
-              <div class="row"><span class="game">HOU 4 @ SEA 3</span><span class="inning">Bot 8</span></div>
+              <div class="row">
+                <span class="game-line">
+                  <span class="game">HOU 4 @ SEA 3</span>
+                  <button type="button" class="super-btn" data-super-pk="9003" aria-label="Open full game view" title="Full game view">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                      <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </span>
+                <span class="inning">Bot 8</span>
+              </div>
               <div class="matchup">Josh Hader vs Julio Rodríguez</div>
               <div class="situation" aria-label="2 and 2, 2 outs">
                 <div class="diamond" aria-hidden="true">
@@ -282,7 +312,17 @@
           <div class="card-main">
             <div class="pitches"></div>
             <div>
-              <div class="row"><span class="game">CHC 1 @ MIL 1</span><span class="inning">Top 3</span></div>
+              <div class="row">
+                <span class="game-line">
+                  <span class="game">CHC 1 @ MIL 1</span>
+                  <button type="button" class="super-btn" data-super-pk="9004" aria-label="Open full game view" title="Full game view">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                      <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </span>
+                <span class="inning">Top 3</span>
+              </div>
               <div class="matchup">Freddy Peralta vs Cody Bellinger</div>
               <div class="situation" aria-label="0 and 0, 0 outs">
                 <div class="diamond" aria-hidden="true">
@@ -326,6 +366,10 @@
           </div></div>
         </div>
       </article>
+    </div>
+    <div id="super-modal" class="super-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-label="Full game view">
+      <div class="super-backdrop"></div>
+      <div class="super-panel-root"></div>
     </div>
   </section>
 
