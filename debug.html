@@ -31,6 +31,11 @@
     .err { color: #b00020; }
     .ok { color: #0a7a2f; }
     .nav { margin-bottom: 1rem; font-size: .9rem; }
+    .debug-pz-test { display: grid; gap: .75rem; max-width: 22rem; }
+    .debug-pz-controls { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .debug-pz-controls button { padding: .4rem .75rem; cursor: pointer; }
+    .debug-pz-pass { color: #0a7a2f; }
+    .debug-pz-fail { color: #b00020; }
   </style>
 </head>
 <body>
@@ -370,6 +375,22 @@
     <div id="super-modal" class="super-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-label="Full game view">
       <div class="super-backdrop"></div>
       <div class="super-panel-root"></div>
+    </div>
+  </section>
+
+  <section class="debug-section" id="pitch-zone-test-section">
+    <h2>Pitch view — fixed zone test</h2>
+    <p class="debug-meta">Step through pitches with very different locations. The strike zone wireframe and plate gap should stay fixed; only dots move.</p>
+    <div class="debug-pz-test">
+      <div id="pitch-zone-test-view" class="debug-wrap"></div>
+      <div class="debug-pz-controls">
+        <button type="button" id="pz-prev">← Prev pitch</button>
+        <button type="button" id="pz-next">Next pitch →</button>
+        <button type="button" id="pz-reset">Reset</button>
+        <button type="button" id="pz-run">Run checks</button>
+      </div>
+      <div id="pitch-zone-test-metrics" class="debug-meta"></div>
+      <div id="pitch-zone-test-status" class="debug-meta"></div>
     </div>
   </section>
 

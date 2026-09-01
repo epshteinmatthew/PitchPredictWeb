@@ -524,53 +524,34 @@ function pitchZoneHtml(item) {
   const szTop = pitches.map(p => p.szTop).find(Number.isFinite) ?? 3.5;
   const szBot = pitches.map(p => p.szBot).find(Number.isFinite) ?? 1.5;
   const half = 17 / 24; // plate half-width (ft)
-
-  // Tight catcher's-view crop — zone dominates, room for balls outside
-  let xMin = -1.5, xMax = 1.5;
-  let zBot = 0.8, zTop = 4.0;
-  for (const p of pitches) {
-    xMin = Math.min(xMin, p.px - 0.2);
-    xMax = Math.max(xMax, p.px + 0.2);
-    zBot = Math.min(zBot, p.pz - 0.15);
-    zTop = Math.max(zTop, p.pz + 0.15);
-  }
-  xMin = Math.min(xMin, -half - 0.35);
-  xMax = Math.max(xMax, half + 0.35);
-  zBot = Math.max(0.4, Math.min(zBot, szBot - 0.1));
-  zTop = Math.max(zTop, szTop + 0.15);
+  const zoneH = szTop - szBot || 2;
 
   const W = 260, H = 320;
-  // Room for Gameday-style outer shadow ring + gap + plate under the zone
-  const padL = 36, padR = 36, padT = 28, padB = 96;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-  const sx = x => padL + ((x - xMin) / (xMax - xMin)) * innerW;
-  const sy = z => padT + ((zTop - z) / (zTop - zBot)) * innerH;
-
-  // Inner 3×3 = actual strike zone (pitch coords map here)
-  const L = sx(-half), R = sx(half), T = sy(szTop), B = sy(szBot);
-  const zw = R - L, zh = B - T;
-  const cx = (L + R) / 2;
-  const cellW = zw / 3, cellH = zh / 3;
-  // Outer shadow ring ≈ one cell deep (Gameday 5×5 frame around the zone)
-  const oL = L - cellW, oR = R + cellW, oT = T - cellH, oB = B + cellH;
-
-  // Plate under the outer frame with a clear knees-to-ground gap; tip down
-  const plateGap = Math.max(14, cellH * 0.55);
+  // Fixed wireframe geometry — zone/plate never rescale as pitches arrive
+  const zoneW = 108, zoneHPx = 126;
+  const cx = W / 2;
+  const L = cx - zoneW / 2, R = cx + zoneW / 2;
+  const cellW = zoneW / 3, cellH = zoneHPx / 3;
+  const oL = L - cellW, oR = R + cellW;
+  const oT = 36, oB = oT + zoneHPx + 2 * cellH;
+  const T = oT + cellH, B = T + zoneHPx;
+  const plateGap = 18;
   const plateTop = oB + plateGap;
-  const pFlat = plateTop + Math.max(9, zh * 0.09);
-  const pTip = plateTop + Math.max(32, zh * 0.36);
+  const pFlat = plateTop + 11;
+  const pTip = plateTop + 38;
+
+  // Map pitch coords (ft) onto the fixed zone; dots may land outside the box
+  const sx = px => L + ((px + half) / (2 * half)) * zoneW;
+  const sy = pz => B - ((pz - szBot) / zoneH) * zoneHPx;
 
   const stroke = "#111";
   const shadow = "#bbb";
-  // Outer ring: light wireframe only (shadow / chase zone)
   const shadowGrid = [
     ...[oL, L, R, oR].map(x =>
       `<line x1="${x.toFixed(1)}" y1="${oT.toFixed(1)}" x2="${x.toFixed(1)}" y2="${oB.toFixed(1)}" stroke="${shadow}" stroke-width="1"/>`),
     ...[oT, T, B, oB].map(y =>
       `<line x1="${oL.toFixed(1)}" y1="${y.toFixed(1)}" x2="${oR.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${shadow}" stroke-width="1"/>`),
   ].join("");
-  // Inner 3×3 only inside the real strike zone
   const zoneGrid = [1, 2].map(i => {
     const gx = L + cellW * i, gy = T + cellH * i;
     return `<line x1="${gx.toFixed(1)}" y1="${T.toFixed(1)}" x2="${gx.toFixed(1)}" y2="${B.toFixed(1)}" stroke="#ccc" stroke-width="1"/>
@@ -588,11 +569,11 @@ function pitchZoneHtml(item) {
 
   return `<div class="super-panel pitch-panel">
     <h3 class="section-title">Pitch view</h3>
-    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" role="img" aria-label="Catcher's view pitch locations">
+    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" overflow="visible" role="img" aria-label="Catcher's view pitch locations">
       <rect x="${oL.toFixed(1)}" y="${oT.toFixed(1)}" width="${(oR - oL).toFixed(1)}" height="${(oB - oT).toFixed(1)}"
         fill="#f7f7f7" stroke="${shadow}" stroke-width="1"/>
       ${shadowGrid}
-      <rect x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${zw.toFixed(1)}" height="${zh.toFixed(1)}"
+      <rect x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${zoneW.toFixed(1)}" height="${zoneHPx.toFixed(1)}"
         fill="#fff" stroke="${stroke}" stroke-width="2.25"/>
       ${zoneGrid}
       <path d="M${L.toFixed(1)} ${plateTop.toFixed(1)}

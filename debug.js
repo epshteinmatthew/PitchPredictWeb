@@ -509,6 +509,22 @@ function headshot(id, alt) {
   return `<img class="headshot" src="${src}" alt="${esc(alt || "")}" width="40" height="40" loading="lazy">`;
 }
 
+function pitchZoneWireframe() {
+  const W = 260, H = 320;
+  const zoneW = 108, zoneHPx = 126;
+  const cx = W / 2;
+  const L = cx - zoneW / 2, R = cx + zoneW / 2;
+  const cellW = zoneW / 3, cellH = zoneHPx / 3;
+  const oL = L - cellW, oR = R + cellW;
+  const oT = 36, oB = oT + zoneHPx + 2 * cellH;
+  const T = oT + cellH, B = T + zoneHPx;
+  const plateGap = 18;
+  const plateTop = oB + plateGap;
+  const pFlat = plateTop + 11;
+  const pTip = plateTop + 38;
+  return { W, H, cx, L, R, T, B, oL, oR, oT, oB, zoneW, zoneHPx, cellW, cellH, plateGap, plateTop, pFlat, pTip };
+}
+
 function pitchZoneHtml(item) {
   const all = item.view?.pitches || item.pitches || [];
   const pitches = all.filter(p => p.px != null && p.pz != null);
@@ -521,54 +537,22 @@ function pitchZoneHtml(item) {
 
   const szTop = pitches.map(p => p.szTop).find(Number.isFinite) ?? 3.5;
   const szBot = pitches.map(p => p.szBot).find(Number.isFinite) ?? 1.5;
-  const half = 17 / 24; // plate half-width (ft)
+  const half = 17 / 24;
+  const zoneH = szTop - szBot || 2;
+  const wf = pitchZoneWireframe();
+  const { W, H, cx, L, R, T, B, oL, oR, oT, oB, zoneW, zoneHPx, cellW, cellH, plateGap, plateTop, pFlat, pTip } = wf;
 
-  // Tight catcher's-view crop — zone dominates, room for balls outside
-  let xMin = -1.5, xMax = 1.5;
-  let zBot = 0.8, zTop = 4.0;
-  for (const p of pitches) {
-    xMin = Math.min(xMin, p.px - 0.2);
-    xMax = Math.max(xMax, p.px + 0.2);
-    zBot = Math.min(zBot, p.pz - 0.15);
-    zTop = Math.max(zTop, p.pz + 0.15);
-  }
-  xMin = Math.min(xMin, -half - 0.35);
-  xMax = Math.max(xMax, half + 0.35);
-  zBot = Math.max(0.4, Math.min(zBot, szBot - 0.1));
-  zTop = Math.max(zTop, szTop + 0.15);
-
-  const W = 260, H = 320;
-  // Room for Gameday-style outer shadow ring + gap + plate under the zone
-  const padL = 36, padR = 36, padT = 28, padB = 96;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-  const sx = x => padL + ((x - xMin) / (xMax - xMin)) * innerW;
-  const sy = z => padT + ((zTop - z) / (zTop - zBot)) * innerH;
-
-  // Inner 3×3 = actual strike zone (pitch coords map here)
-  const L = sx(-half), R = sx(half), T = sy(szTop), B = sy(szBot);
-  const zw = R - L, zh = B - T;
-  const cx = (L + R) / 2;
-  const cellW = zw / 3, cellH = zh / 3;
-  // Outer shadow ring ≈ one cell deep (Gameday 5×5 frame around the zone)
-  const oL = L - cellW, oR = R + cellW, oT = T - cellH, oB = B + cellH;
-
-  // Plate under the outer frame with a clear knees-to-ground gap; tip down
-  const plateGap = Math.max(14, cellH * 0.55);
-  const plateTop = oB + plateGap;
-  const pFlat = plateTop + Math.max(9, zh * 0.09);
-  const pTip = plateTop + Math.max(32, zh * 0.36);
+  const sx = px => L + ((px + half) / (2 * half)) * zoneW;
+  const sy = pz => B - ((pz - szBot) / zoneH) * zoneHPx;
 
   const stroke = "#111";
   const shadow = "#bbb";
-  // Outer ring: light wireframe only (shadow / chase zone)
   const shadowGrid = [
     ...[oL, L, R, oR].map(x =>
       `<line x1="${x.toFixed(1)}" y1="${oT.toFixed(1)}" x2="${x.toFixed(1)}" y2="${oB.toFixed(1)}" stroke="${shadow}" stroke-width="1"/>`),
     ...[oT, T, B, oB].map(y =>
       `<line x1="${oL.toFixed(1)}" y1="${y.toFixed(1)}" x2="${oR.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${shadow}" stroke-width="1"/>`),
   ].join("");
-  // Inner 3×3 only inside the real strike zone
   const zoneGrid = [1, 2].map(i => {
     const gx = L + cellW * i, gy = T + cellH * i;
     return `<line x1="${gx.toFixed(1)}" y1="${T.toFixed(1)}" x2="${gx.toFixed(1)}" y2="${B.toFixed(1)}" stroke="#ccc" stroke-width="1"/>
@@ -586,14 +570,15 @@ function pitchZoneHtml(item) {
 
   return `<div class="super-panel pitch-panel">
     <h3 class="section-title">Pitch view</h3>
-    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" role="img" aria-label="Catcher's view pitch locations">
-      <rect x="${oL.toFixed(1)}" y="${oT.toFixed(1)}" width="${(oR - oL).toFixed(1)}" height="${(oB - oT).toFixed(1)}"
+    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" overflow="visible" role="img" aria-label="Catcher's view pitch locations">
+      <rect data-pz="outer" x="${oL.toFixed(1)}" y="${oT.toFixed(1)}" width="${(oR - oL).toFixed(1)}" height="${(oB - oT).toFixed(1)}"
         fill="#f7f7f7" stroke="${shadow}" stroke-width="1"/>
       ${shadowGrid}
-      <rect x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${zw.toFixed(1)}" height="${zh.toFixed(1)}"
+      <rect data-pz="inner" x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${zoneW.toFixed(1)}" height="${zoneHPx.toFixed(1)}"
         fill="#fff" stroke="${stroke}" stroke-width="2.25"/>
       ${zoneGrid}
-      <path d="M${L.toFixed(1)} ${plateTop.toFixed(1)}
+      <path data-pz="plate" data-plate-top="${plateTop.toFixed(1)}" data-gap="${plateGap}"
+        d="M${L.toFixed(1)} ${plateTop.toFixed(1)}
         L${R.toFixed(1)} ${plateTop.toFixed(1)}
         L${R.toFixed(1)} ${pFlat.toFixed(1)}
         L${cx.toFixed(1)} ${pTip.toFixed(1)}
@@ -860,3 +845,108 @@ superModal?.addEventListener("click", e => {
   }
   if (e.target.closest(".super-close")) closeSuper();
 });
+
+/* —— Pitch view fixed-zone harness —— */
+const PITCH_ZONE_TEST_PITCHES = [
+  { n: 1, kind: "strike", px: 0, pz: 2.5, szTop: 3.5, szBot: 1.5 },
+  { n: 2, kind: "ball", px: -2.2, pz: 4.8, szTop: 3.5, szBot: 1.5 },
+  { n: 3, kind: "ball", px: 1.9, pz: 0.4, szTop: 3.5, szBot: 1.5 },
+  { n: 4, kind: "strike", px: 0.55, pz: 3.45, szTop: 3.5, szBot: 1.5 },
+  { n: 5, kind: "ball", px: -1.6, pz: 1.1, szTop: 3.5, szBot: 1.5 },
+];
+
+let pzTestIdx = 1;
+
+function pitchZoneMetricsFromEl(root) {
+  const svg = root?.querySelector(".pitch-zone");
+  if (!svg) return null;
+  const inner = svg.querySelector('[data-pz="inner"]');
+  const outer = svg.querySelector('[data-pz="outer"]');
+  const plate = svg.querySelector('[data-pz="plate"]');
+  if (!inner || !outer || !plate) return null;
+  return {
+    inner: {
+      x: +inner.getAttribute("x"),
+      y: +inner.getAttribute("y"),
+      w: +inner.getAttribute("width"),
+      h: +inner.getAttribute("height"),
+    },
+    outer: {
+      x: +outer.getAttribute("x"),
+      y: +outer.getAttribute("y"),
+      w: +outer.getAttribute("width"),
+      h: +outer.getAttribute("height"),
+    },
+    plateTop: +plate.dataset.plateTop,
+    gap: +plate.dataset.gap,
+    dotCount: svg.querySelectorAll("circle").length,
+  };
+}
+
+function renderPitchZoneTest() {
+  const root = document.getElementById("pitch-zone-test-view");
+  if (!root) return;
+  root.innerHTML = pitchZoneHtml({ pitches: PITCH_ZONE_TEST_PITCHES.slice(0, pzTestIdx) });
+  const m = pitchZoneMetricsFromEl(root);
+  const meta = document.getElementById("pitch-zone-test-metrics");
+  if (!meta) return;
+  if (!m) {
+    meta.textContent = "No pitches";
+    return;
+  }
+  meta.textContent =
+    `Showing pitch ${pzTestIdx}/${PITCH_ZONE_TEST_PITCHES.length} · `
+    + `inner ${m.inner.w}×${m.inner.h} @ (${m.inner.x}, ${m.inner.y}) · `
+    + `outer ${m.outer.w}×${m.outer.h} · gap ${m.gap}px · dots ${m.dotCount}`;
+}
+
+function runPitchZoneChecks() {
+  const expected = pitchZoneWireframe();
+  const root = document.getElementById("pitch-zone-test-view");
+  const status = document.getElementById("pitch-zone-test-status");
+  if (!root || !status) return;
+
+  const failures = [];
+  for (let i = 1; i <= PITCH_ZONE_TEST_PITCHES.length; i++) {
+    root.innerHTML = pitchZoneHtml({ pitches: PITCH_ZONE_TEST_PITCHES.slice(0, i) });
+    const m = pitchZoneMetricsFromEl(root);
+    const ok = m
+      && m.inner.w === expected.zoneW
+      && m.inner.h === expected.zoneHPx
+      && m.inner.x === expected.L
+      && m.inner.y === expected.T
+      && m.outer.w === expected.zoneW + 2 * expected.cellW
+      && m.outer.h === expected.zoneHPx + 2 * expected.cellH
+      && m.plateTop === expected.plateTop
+      && m.gap === expected.plateGap
+      && m.dotCount === i;
+    if (!ok) failures.push(i);
+  }
+
+  renderPitchZoneTest();
+
+  if (!failures.length) {
+    status.innerHTML = `<span class="debug-pz-pass">All ${PITCH_ZONE_TEST_PITCHES.length} checks passed — wireframe and plate gap stay fixed.</span>`;
+    return;
+  }
+  status.innerHTML = `<span class="debug-pz-fail">Failed at pitch step(s): ${failures.join(", ")}</span>`;
+}
+
+document.getElementById("pz-prev")?.addEventListener("click", () => {
+  pzTestIdx = Math.max(1, pzTestIdx - 1);
+  renderPitchZoneTest();
+});
+document.getElementById("pz-next")?.addEventListener("click", () => {
+  pzTestIdx = Math.min(PITCH_ZONE_TEST_PITCHES.length, pzTestIdx + 1);
+  renderPitchZoneTest();
+});
+document.getElementById("pz-reset")?.addEventListener("click", () => {
+  pzTestIdx = 1;
+  renderPitchZoneTest();
+  const status = document.getElementById("pitch-zone-test-status");
+  if (status) status.textContent = "";
+});
+document.getElementById("pz-run")?.addEventListener("click", runPitchZoneChecks);
+
+renderPitchZoneTest();
+runPitchZoneChecks();
