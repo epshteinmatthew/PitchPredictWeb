@@ -73,10 +73,15 @@ async function slash(id, yr) {
   if (hit) return JSON.parse(hit);
   const load = async y => {
     const j = await get(`${MLB}/v1/people/${id}/stats?stats=season&group=hitting&season=${y}`);
-    return j.stats?.[0]?.splits?.[0]?.stat || {};
+    const splits = j.stats?.[0]?.splits || [];
+    const combined = splits.find(s => s.numTeams) || splits.find(s => !s.team) || splits[0];
+    return combined?.stat || {};
   };
   let st = await load(yr);
-  if (num(st.plateAppearances) < 100) st = await load(yr - 1);
+  if (num(st.plateAppearances) < 100) {
+    const prev = await load(yr - 1);
+    if (num(prev.plateAppearances) > num(st.plateAppearances)) st = prev;
+  }
   const line = [num(st.avg), num(st.obp), num(st.slg)];
   sessionStorage.setItem(key, JSON.stringify(line));
   return line;
@@ -295,12 +300,14 @@ function predKey(ab) {
 
 function carryPreds(old, ab) {
   if (!old) return;
-  if (old.stats) ab.stats = old.stats;
+  const sameMatchup = old.body?.batter_id === ab.body.batter_id
+    && old.body?.pitcher_id === ab.body.pitcher_id;
+  // Slash/ERA belong to the matchup — never carry across batter or pitcher changes
+  if (sameMatchup && old.stats) ab.stats = old.stats;
   if (old.winProb) ab.winProb = old.winProb;
   if (old._wpFp) ab._wpFp = old._wpFp;
-  const sameAb = old.body?.at_bat_number === ab.body.at_bat_number
-    && old.body?.batter_id === ab.body.batter_id
-    && old.body?.pitcher_id === ab.body.pitcher_id;
+  const sameAb = sameMatchup
+    && old.body?.at_bat_number === ab.body.at_bat_number;
   if (!sameAb) return;
   for (const p of ab.view.pitches) {
     const op = old.view.pitches.find(x => x.n === p.n);
@@ -511,6 +518,51 @@ let winProbChart = null;
 
 const DOT_FILL = { ball: "#2e8b3a", strike: "#d32f2f", play: "#1e6fd9", out: "#7b1fa2" };
 
+function pitchZoneWireframe() {
+  const W = 260, H = 320;
+  const zoneW = 108, zoneHPx = 126;
+  const cx = W / 2;
+  const L = cx - zoneW / 2, R = cx + zoneW / 2;
+  const cellW = zoneW / 3, cellH = zoneHPx / 3;
+  const oL = L - cellW, oR = R + cellW;
+  const oT = 36, oB = oT + zoneHPx + 2 * cellH;
+  const T = oT + cellH, B = T + zoneHPx;
+  const plateGap = 18;
+  const plateTop = oB + plateGap;
+  const pFlat = plateTop + 11;
+  const pTip = plateTop + 38;
+  return { W, H, cx, L, R, T, B, oL, oR, oT, oB, zoneW, zoneHPx, cellW, cellH, plateGap, plateTop, pFlat, pTip };
+}
+
+/** IRON RULE: fit far pitches by uniform scale only — never squash/stretch X vs Y independently. */
+function pitchZoneDotLayout(pitches, szTop, szBot, wf) {
+  const DOT_R = 11, MARGIN = 4;
+  const half = 17 / 24;
+  const zoneH = szTop - szBot || 2;
+  const { L, R, T, B, oL, oR, oT, oB, zoneW, zoneHPx } = wf;
+  const zcx = (L + R) / 2, zcy = (T + B) / 2;
+  const boundL = oL + MARGIN, boundR = oR - MARGIN;
+  const boundT = oT + MARGIN, boundB = oB - MARGIN;
+  const base = pitches.map(p => ({
+    x: L + ((p.px + half) / (2 * half)) * zoneW,
+    y: B - ((p.pz - szBot) / zoneH) * zoneHPx,
+  }));
+  let scaleX = 1, scaleY = 1;
+  for (const { x: bx, y: by } of base) {
+    const dx = bx - zcx, dy = by - zcy;
+    if (dx > 0) scaleX = Math.min(scaleX, (boundR - DOT_R - zcx) / dx);
+    else if (dx < 0) scaleX = Math.min(scaleX, (boundL + DOT_R - zcx) / dx);
+    if (dy > 0) scaleY = Math.min(scaleY, (boundB - DOT_R - zcy) / dy);
+    else if (dy < 0) scaleY = Math.min(scaleY, (boundT + DOT_R - zcy) / dy);
+  }
+  const scale = Math.min(1, scaleX, scaleY);
+  const dots = base.map(({ x, y }) => ({
+    x: zcx + (x - zcx) * scale,
+    y: zcy + (y - zcy) * scale,
+  }));
+  return { scale, scaleX, scaleY, dots };
+}
+
 function pitchZoneHtml(item) {
   const all = item.view?.pitches || item.pitches || [];
   const pitches = all.filter(p => p.px != null && p.pz != null);
@@ -523,26 +575,9 @@ function pitchZoneHtml(item) {
 
   const szTop = pitches.map(p => p.szTop).find(Number.isFinite) ?? 3.5;
   const szBot = pitches.map(p => p.szBot).find(Number.isFinite) ?? 1.5;
-  const half = 17 / 24; // plate half-width (ft)
-  const zoneH = szTop - szBot || 2;
-
-  const W = 260, H = 320;
-  // Fixed wireframe geometry — zone/plate never rescale as pitches arrive
-  const zoneW = 108, zoneHPx = 126;
-  const cx = W / 2;
-  const L = cx - zoneW / 2, R = cx + zoneW / 2;
-  const cellW = zoneW / 3, cellH = zoneHPx / 3;
-  const oL = L - cellW, oR = R + cellW;
-  const oT = 36, oB = oT + zoneHPx + 2 * cellH;
-  const T = oT + cellH, B = T + zoneHPx;
-  const plateGap = 18;
-  const plateTop = oB + plateGap;
-  const pFlat = plateTop + 11;
-  const pTip = plateTop + 38;
-
-  // Map pitch coords (ft) onto the fixed zone; dots may land outside the box
-  const sx = px => L + ((px + half) / (2 * half)) * zoneW;
-  const sy = pz => B - ((pz - szBot) / zoneH) * zoneHPx;
+  const wf = pitchZoneWireframe();
+  const { W, H, cx, L, R, T, B, oL, oR, oT, oB, zoneW, zoneHPx, cellW, cellH, plateGap, plateTop, pFlat, pTip } = wf;
+  const { scale, scaleX, scaleY, dots: dotPos } = pitchZoneDotLayout(pitches, szTop, szBot, wf);
 
   const stroke = "#111";
   const shadow = "#bbb";
@@ -558,9 +593,9 @@ function pitchZoneHtml(item) {
       <line x1="${L.toFixed(1)}" y1="${gy.toFixed(1)}" x2="${R.toFixed(1)}" y2="${gy.toFixed(1)}" stroke="#ccc" stroke-width="1"/>`;
   }).join("");
 
-  const dots = pitches.map(p => {
+  const dots = pitches.map((p, i) => {
     const fill = DOT_FILL[p.kind] || "#555";
-    const x = sx(p.px), y = sy(p.pz);
+    const { x, y } = dotPos[i];
     return `<g>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="${fill}" stroke="#fff" stroke-width="2"/>
       <text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="system-ui,sans-serif">${p.n}</text>
@@ -569,7 +604,8 @@ function pitchZoneHtml(item) {
 
   return `<div class="super-panel pitch-panel">
     <h3 class="section-title">Pitch view</h3>
-    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" overflow="visible" role="img" aria-label="Catcher's view pitch locations">
+    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" overflow="hidden" role="img" aria-label="Catcher's view pitch locations"
+      data-pz-scale="${scale.toFixed(4)}" data-pz-scale-x="${scaleX.toFixed(4)}" data-pz-scale-y="${scaleY.toFixed(4)}">
       <rect x="${oL.toFixed(1)}" y="${oT.toFixed(1)}" width="${(oR - oL).toFixed(1)}" height="${(oB - oT).toFixed(1)}"
         fill="#f7f7f7" stroke="${shadow}" stroke-width="1"/>
       ${shadowGrid}

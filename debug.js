@@ -37,15 +37,23 @@ if (!document.getElementById("season").value) {
 
 const get = url => fetch(url).then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); });
 
+/** Season hitting split: prefer combined multi-team total over per-team rows. */
+async function loadHittingSeason(id, y) {
+  const j = await get(`${MLB}/v1/people/${id}/stats?stats=season&group=hitting&season=${y}`);
+  const splits = j.stats?.[0]?.splits || [];
+  const combined = splits.find(s => s.numTeams) || splits.find(s => !s.team) || splits[0];
+  return combined?.stat || {};
+}
+
+/** Current season slash; fall back to prior year when PA < 100. */
 async function slash(id, yr) {
   const key = `${id}:${yr}`;
   if (slashCache.has(key)) return slashCache.get(key);
-  const load = async y => {
-    const j = await get(`${MLB}/v1/people/${id}/stats?stats=season&group=hitting&season=${y}`);
-    return j.stats?.[0]?.splits?.[0]?.stat || {};
-  };
-  let st = await load(yr);
-  if (num(st.plateAppearances) < 100) st = await load(yr - 1);
+  let st = await loadHittingSeason(id, yr);
+  if (num(st.plateAppearances) < 100) {
+    const prev = await loadHittingSeason(id, yr - 1);
+    if (num(prev.plateAppearances) > num(st.plateAppearances)) st = prev;
+  }
   const line = [num(st.avg), num(st.obp), num(st.slg)];
   slashCache.set(key, line);
   return line;
@@ -525,6 +533,35 @@ function pitchZoneWireframe() {
   return { W, H, cx, L, R, T, B, oL, oR, oT, oB, zoneW, zoneHPx, cellW, cellH, plateGap, plateTop, pFlat, pTip };
 }
 
+/** IRON RULE: fit far pitches by uniform scale only — never squash/stretch X vs Y independently. */
+function pitchZoneDotLayout(pitches, szTop, szBot, wf) {
+  const DOT_R = 11, MARGIN = 4;
+  const half = 17 / 24;
+  const zoneH = szTop - szBot || 2;
+  const { L, R, T, B, oL, oR, oT, oB, zoneW, zoneHPx } = wf;
+  const zcx = (L + R) / 2, zcy = (T + B) / 2;
+  const boundL = oL + MARGIN, boundR = oR - MARGIN;
+  const boundT = oT + MARGIN, boundB = oB - MARGIN;
+  const base = pitches.map(p => ({
+    x: L + ((p.px + half) / (2 * half)) * zoneW,
+    y: B - ((p.pz - szBot) / zoneH) * zoneHPx,
+  }));
+  let scaleX = 1, scaleY = 1;
+  for (const { x: bx, y: by } of base) {
+    const dx = bx - zcx, dy = by - zcy;
+    if (dx > 0) scaleX = Math.min(scaleX, (boundR - DOT_R - zcx) / dx);
+    else if (dx < 0) scaleX = Math.min(scaleX, (boundL + DOT_R - zcx) / dx);
+    if (dy > 0) scaleY = Math.min(scaleY, (boundB - DOT_R - zcy) / dy);
+    else if (dy < 0) scaleY = Math.min(scaleY, (boundT + DOT_R - zcy) / dy);
+  }
+  const scale = Math.min(1, scaleX, scaleY);
+  const dots = base.map(({ x, y }) => ({
+    x: zcx + (x - zcx) * scale,
+    y: zcy + (y - zcy) * scale,
+  }));
+  return { scale, scaleX, scaleY, dots };
+}
+
 function pitchZoneHtml(item) {
   const all = item.view?.pitches || item.pitches || [];
   const pitches = all.filter(p => p.px != null && p.pz != null);
@@ -537,13 +574,9 @@ function pitchZoneHtml(item) {
 
   const szTop = pitches.map(p => p.szTop).find(Number.isFinite) ?? 3.5;
   const szBot = pitches.map(p => p.szBot).find(Number.isFinite) ?? 1.5;
-  const half = 17 / 24;
-  const zoneH = szTop - szBot || 2;
   const wf = pitchZoneWireframe();
   const { W, H, cx, L, R, T, B, oL, oR, oT, oB, zoneW, zoneHPx, cellW, cellH, plateGap, plateTop, pFlat, pTip } = wf;
-
-  const sx = px => L + ((px + half) / (2 * half)) * zoneW;
-  const sy = pz => B - ((pz - szBot) / zoneH) * zoneHPx;
+  const { scale, scaleX, scaleY, dots: dotPos } = pitchZoneDotLayout(pitches, szTop, szBot, wf);
 
   const stroke = "#111";
   const shadow = "#bbb";
@@ -559,9 +592,9 @@ function pitchZoneHtml(item) {
       <line x1="${L.toFixed(1)}" y1="${gy.toFixed(1)}" x2="${R.toFixed(1)}" y2="${gy.toFixed(1)}" stroke="#ccc" stroke-width="1"/>`;
   }).join("");
 
-  const dots = pitches.map(p => {
+  const dots = pitches.map((p, i) => {
     const fill = DOT_FILL[p.kind] || "#555";
-    const x = sx(p.px), y = sy(p.pz);
+    const { x, y } = dotPos[i];
     return `<g>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="${fill}" stroke="#fff" stroke-width="2"/>
       <text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="system-ui,sans-serif">${p.n}</text>
@@ -570,7 +603,8 @@ function pitchZoneHtml(item) {
 
   return `<div class="super-panel pitch-panel">
     <h3 class="section-title">Pitch view</h3>
-    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" overflow="visible" role="img" aria-label="Catcher's view pitch locations">
+    <svg class="pitch-zone" viewBox="0 0 ${W} ${H}" overflow="hidden" role="img" aria-label="Catcher's view pitch locations"
+      data-pz-scale="${scale.toFixed(4)}" data-pz-scale-x="${scaleX.toFixed(4)}" data-pz-scale-y="${scaleY.toFixed(4)}">
       <rect data-pz="outer" x="${oL.toFixed(1)}" y="${oT.toFixed(1)}" width="${(oR - oL).toFixed(1)}" height="${(oB - oT).toFixed(1)}"
         fill="#f7f7f7" stroke="${shadow}" stroke-width="1"/>
       ${shadowGrid}
@@ -864,6 +898,18 @@ function pitchZoneMetricsFromEl(root) {
   const outer = svg.querySelector('[data-pz="outer"]');
   const plate = svg.querySelector('[data-pz="plate"]');
   if (!inner || !outer || !plate) return null;
+  const scale = +svg.dataset.pzScale;
+  const scaleX = +svg.dataset.pzScaleX;
+  const scaleY = +svg.dataset.pzScaleY;
+  const circles = [...svg.querySelectorAll("circle")];
+  const boundL = +outer.getAttribute("x") + 4;
+  const boundR = boundL + +outer.getAttribute("width") - 8;
+  const boundT = +outer.getAttribute("y") + 4;
+  const boundB = boundT + +outer.getAttribute("height") - 8;
+  const dotsInBounds = circles.every(c => {
+    const cx = +c.getAttribute("cx"), cy = +c.getAttribute("cy"), r = +c.getAttribute("r");
+    return cx - r >= boundL && cx + r <= boundR && cy - r >= boundT && cy + r <= boundB;
+  });
   return {
     inner: {
       x: +inner.getAttribute("x"),
@@ -879,7 +925,12 @@ function pitchZoneMetricsFromEl(root) {
     },
     plateTop: +plate.dataset.plateTop,
     gap: +plate.dataset.gap,
-    dotCount: svg.querySelectorAll("circle").length,
+    scale,
+    scaleX,
+    scaleY,
+    uniformScale: scale === Math.min(1, scaleX, scaleY),
+    dotsInBounds,
+    dotCount: circles.length,
   };
 }
 
@@ -897,7 +948,7 @@ function renderPitchZoneTest() {
   meta.textContent =
     `Showing pitch ${pzTestIdx}/${PITCH_ZONE_TEST_PITCHES.length} · `
     + `inner ${m.inner.w}×${m.inner.h} @ (${m.inner.x}, ${m.inner.y}) · `
-    + `outer ${m.outer.w}×${m.outer.h} · gap ${m.gap}px · dots ${m.dotCount}`;
+    + `outer ${m.outer.w}×${m.outer.h} · gap ${m.gap}px · scale ${m.scale.toFixed(3)} · dots ${m.dotCount}`;
 }
 
 function runPitchZoneChecks() {
@@ -919,14 +970,17 @@ function runPitchZoneChecks() {
       && m.outer.h === expected.zoneHPx + 2 * expected.cellH
       && m.plateTop === expected.plateTop
       && m.gap === expected.plateGap
-      && m.dotCount === i;
+      && m.uniformScale
+      && m.dotsInBounds
+      && m.dotCount === i
+      && (i === 1 ? m.scale === 1 : m.scale <= 1);
     if (!ok) failures.push(i);
   }
 
   renderPitchZoneTest();
 
   if (!failures.length) {
-    status.innerHTML = `<span class="debug-pz-pass">All ${PITCH_ZONE_TEST_PITCHES.length} checks passed — wireframe and plate gap stay fixed.</span>`;
+    status.innerHTML = `<span class="debug-pz-pass">All ${PITCH_ZONE_TEST_PITCHES.length} checks passed — wireframe fixed, uniform scale only, dots in bounds.</span>`;
     return;
   }
   status.innerHTML = `<span class="debug-pz-fail">Failed at pitch step(s): ${failures.join(", ")}</span>`;
@@ -950,3 +1004,96 @@ document.getElementById("pz-run")?.addEventListener("click", runPitchZoneChecks)
 
 renderPitchZoneTest();
 runPitchZoneChecks();
+
+/** Known hitters — include regulars so prior season usually differs from current. */
+const SLASH_TEST_BATTERS = [
+  { id: 592450, name: "Aaron Judge" },
+  { id: 660271, name: "Shohei Ohtani" },
+  { id: 677594, name: "Julio Rodríguez" },
+  { id: 646240, name: "Rafael Devers" },
+  { id: 571448, name: "Nolan Arenado" },
+  { id: 665742, name: "Kyle Tucker" },
+];
+
+function fmtSlashLine(avg, obp, slg) {
+  return `${fmtRate(avg)} / ${fmtRate(obp)} / ${fmtRate(slg)}`;
+}
+
+function sameSlash(a, b) {
+  return a?.[0] === b?.[0] && a?.[1] === b?.[1] && a?.[2] === b?.[2];
+}
+
+async function runSlashChecks() {
+  const meta = document.getElementById("slash-test-meta");
+  const status = document.getElementById("slash-test-status");
+  const rows = document.getElementById("slash-test-rows");
+  const btn = document.getElementById("slash-run");
+  if (!meta || !status || !rows) return;
+
+  const yr = new Date().getFullYear();
+  if (btn) btn.disabled = true;
+  meta.textContent = `Checking ${SLASH_TEST_BATTERS.length} batters for ${yr} season slash…`;
+  status.textContent = "";
+  rows.innerHTML = "";
+  slashCache.clear();
+
+  try {
+    let pass = 0;
+    let fail = 0;
+    let usedPrior = 0;
+
+    for (const batter of SLASH_TEST_BATTERS) {
+      const [used, currentSt, prevSt] = await Promise.all([
+        slash(batter.id, yr),
+        loadHittingSeason(batter.id, yr),
+        loadHittingSeason(batter.id, yr - 1),
+      ]);
+      const current = [num(currentSt.avg), num(currentSt.obp), num(currentSt.slg)];
+      const prev = [num(prevSt.avg), num(prevSt.obp), num(prevSt.slg)];
+      const pa = num(currentSt.plateAppearances);
+      const prevPa = num(prevSt.plateAppearances);
+      const expectPrior = pa < 100 && prevPa > pa;
+      const expected = expectPrior ? prev : current;
+      const source = expectPrior ? `prior ${yr - 1}` : `${yr} season`;
+      if (expectPrior) usedPrior++;
+
+      const ok = sameSlash(used, expected);
+      if (ok) pass++;
+      else fail++;
+
+      const tr = document.createElement("tr");
+      tr.className = ok ? "hit" : "miss";
+      tr.innerHTML = `
+        <td>${esc(batter.name)}</td>
+        <td class="mono">${pa || "—"}</td>
+        <td class="mono">${fmtSlashLine(...current)}</td>
+        <td class="mono">${fmtSlashLine(...prev)}</td>
+        <td class="mono">${fmtSlashLine(...used)}</td>
+        <td>${esc(source)}</td>
+        <td class="${ok ? "ok" : "err"}">${ok ? "pass" : "fail"}</td>`;
+      rows.appendChild(tr);
+    }
+
+    meta.textContent =
+      `${yr} season API · ${SLASH_TEST_BATTERS.length} batters`
+      + (usedPrior ? ` · ${usedPrior} fell back to ${yr - 1}` : " · all used current season");
+
+    if (!fail) {
+      status.innerHTML =
+        `<span class="debug-pz-pass">All ${pass} checks passed — current season when PA ≥ 100, prior year when PA &lt; 100.</span>`;
+    } else {
+      status.innerHTML =
+        `<span class="debug-pz-fail">${fail} failed, ${pass} passed.</span>`;
+    }
+  } catch (e) {
+    status.innerHTML = `<span class="debug-pz-fail">Slash check error: ${esc(e.message)}</span>`;
+    meta.textContent = "Failed to run slash checks.";
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+document.getElementById("slash-run")?.addEventListener("click", () => {
+  runSlashChecks();
+});
+runSlashChecks();

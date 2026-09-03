@@ -36,6 +36,9 @@
     .debug-pz-controls button { padding: .4rem .75rem; cursor: pointer; }
     .debug-pz-pass { color: #0a7a2f; }
     .debug-pz-fail { color: #b00020; }
+    .debug-slash-test { display: grid; gap: .75rem; }
+    .debug-slash-test .debug-table-wrap { max-height: 18rem; }
+    .debug-slash-test td.mono { font-variant-numeric: tabular-nums; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -391,6 +394,37 @@
       </div>
       <div id="pitch-zone-test-metrics" class="debug-meta"></div>
       <div id="pitch-zone-test-status" class="debug-meta"></div>
+    </div>
+  </section>
+
+  <section class="debug-section" id="slash-test-section">
+    <h2>Slash line — current season</h2>
+    <p class="debug-meta">
+      <code>slash()</code> uses this season’s AVG/OBP/SLG. If season PA is under 100, it falls back to the prior year
+      when that sample is larger.
+    </p>
+    <div class="debug-slash-test">
+      <div class="debug-pz-controls">
+        <button type="button" id="slash-run">Run slash checks</button>
+      </div>
+      <div id="slash-test-meta" class="debug-meta">Not run yet.</div>
+      <div id="slash-test-status" class="debug-meta"></div>
+      <div class="debug-table-wrap debug-wrap">
+        <table class="debug-table">
+          <thead>
+            <tr>
+              <th>Batter</th>
+              <th>Season PA</th>
+              <th>Current season</th>
+              <th>Prior season</th>
+              <th>Used by slash()</th>
+              <th>Source</th>
+              <th>Check</th>
+            </tr>
+          </thead>
+          <tbody id="slash-test-rows"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 

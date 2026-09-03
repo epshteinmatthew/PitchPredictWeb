@@ -220,10 +220,15 @@ async function slash(id, yr) {
   if (hit) return JSON.parse(hit);
   const load = async y => {
     const j = await get(`${MLB}/v1/people/${id}/stats?stats=season&group=hitting&season=${y}`);
-    return j.stats?.[0]?.splits?.[0]?.stat || {};
+    const splits = j.stats?.[0]?.splits || [];
+    const combined = splits.find(s => s.numTeams) || splits.find(s => !s.team) || splits[0];
+    return combined?.stat || {};
   };
   let st = await load(yr);
-  if (num(st.plateAppearances) < 100) st = await load(yr - 1);
+  if (num(st.plateAppearances) < 100) {
+    const prev = await load(yr - 1);
+    if (num(prev.plateAppearances) > num(st.plateAppearances)) st = prev;
+  }
   const line = [num(st.avg), num(st.obp), num(st.slg)];
   sessionStorage.setItem(key, JSON.stringify(line));
   return line;
